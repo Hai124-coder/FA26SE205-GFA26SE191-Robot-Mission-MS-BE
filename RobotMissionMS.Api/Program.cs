@@ -1,6 +1,15 @@
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using RobotMissionMS.DataAccess.Persistence;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException(
+        "Set ConnectionStrings:DefaultConnection in User Secrets or environment variables.");
+builder.Services.AddSingleton<NpgsqlDataSource>(_ => DatabaseDataSource.Create(connectionString));
+builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
+    options.UseNpgsql(services.GetRequiredService<NpgsqlDataSource>()));
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -14,6 +23,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.MapGet("/health/database", async (RobotMissionDbContext db, CancellationToken cancellationToken) =>
+        await db.Database.CanConnectAsync(cancellationToken)
+            ? Results.Ok(new { status = "connected" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable))
+        .WithTags("Health");
 }
 
 app.UseHttpsRedirection();

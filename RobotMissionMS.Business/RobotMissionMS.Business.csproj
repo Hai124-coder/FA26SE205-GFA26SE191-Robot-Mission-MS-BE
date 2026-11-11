@@ -6,4 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\RobotMissionMS.DataAccess\RobotMissionMS.DataAccess.csproj" />
+  </ItemGroup>
 </Project>
