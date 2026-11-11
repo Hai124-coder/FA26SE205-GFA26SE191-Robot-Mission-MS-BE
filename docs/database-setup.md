@@ -3,6 +3,12 @@
 BE dùng .NET 8, EF Core 8 và Npgsql để truy cập PostgreSQL có sẵn trên Supabase.
 Database hiện là nguồn cấu trúc chính (Database First).
 
+## Dữ liệu để phát triển API
+
+Đã có công cụ `RobotMissionMS.Seeder` chạy thủ công, gồm chế độ preview (rollback)
+và apply (lưu). Xem [hướng dẫn seed dữ liệu](seed-data.md) để tạo dữ liệu nền,
+hiểu dữ liệu mẫu và cách bổ sung demo theo module. Công cụ không thay đổi schema.
+
 ## Cấu hình trên máy phát triển
 
 Trong Visual Studio, nhấp phải `RobotMissionMS.Api` > **Manage User Secrets**.

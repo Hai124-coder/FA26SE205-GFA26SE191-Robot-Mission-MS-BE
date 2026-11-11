@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.DataAccess.Entities;
+using RobotMissionMS.DataAccess.Enums;
 
 namespace RobotMissionMS.DataAccess.Persistence;
 
@@ -14,7 +15,9 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<Batch>().Property(e => e.Source).HasColumnType("batch_source").HasDefaultValueSql("'IMPORT'::batch_source");
         modelBuilder.Entity<ChargingSession>().Property(e => e.Status).HasColumnType("charging_session_status").HasDefaultValueSql("'CHARGING'::charging_session_status");
         modelBuilder.Entity<ChargingStation>().Property(e => e.Status).HasColumnType("station_status").HasDefaultValueSql("'OPERATIONAL'::station_status");
-        modelBuilder.Entity<Location>().Property(e => e.Kind).HasColumnType("location_kind").HasDefaultValueSql("'DEPT'::location_kind");
+        // Pharmacy is enum value 0: do not treat it as unset and replace it with DEPT.
+        modelBuilder.Entity<Location>().Property(e => e.Kind).HasColumnType("location_kind").HasDefaultValueSql("'DEPT'::location_kind")
+            .HasSentinel((LocationKind)(-1));
         modelBuilder.Entity<MapNode>().Property(e => e.NodeType).HasColumnType("node_type");
         modelBuilder.Entity<MapVersion>().Property(e => e.Status).HasColumnType("map_version_status").HasDefaultValueSql("'DRAFT'::map_version_status");
         modelBuilder.Entity<Mission>().Property(e => e.Priority).HasColumnType("mission_priority").HasDefaultValueSql("'NORMAL'::mission_priority");
