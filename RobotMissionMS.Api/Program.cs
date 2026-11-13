@@ -13,6 +13,7 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
     options.UseNpgsql(services.GetRequiredService<NpgsqlDataSource>()));
 
 builder.Services.AddControllers();
+builder.Services.AddAuthConfiguration(builder.Configuration);
 builder.Services.AddAuthServices();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();

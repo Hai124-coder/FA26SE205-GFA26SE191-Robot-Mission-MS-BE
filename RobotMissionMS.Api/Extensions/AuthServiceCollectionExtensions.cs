@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using RobotMissionMS.Business.Features.Auth.Configuration;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.Business.Features.Auth.Services;
 using RobotMissionMS.DataAccess.Entities;
@@ -11,8 +13,28 @@ namespace RobotMissionMS.Api.Extensions;
 public static class AuthServiceCollectionExtensions
 {
     /// <summary>
+    /// Binds and validates authentication settings when the host starts. The JWT
+    /// signing key must be supplied through User Secrets or environment variables.
+    /// </summary>
+    public static IServiceCollection AddAuthConfiguration(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddOptions<JwtOptions>()
+            .Bind(configuration.GetSection(JwtOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<AuthOptions>()
+            .Bind(configuration.GetSection(AuthOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers Auth dependencies. The host must register RobotMissionDbContext
-    /// and configure JwtOptions/AuthOptions separately before using Auth.
+    /// and call AddAuthConfiguration before resolving Auth services.
     /// </summary>
     public static IServiceCollection AddAuthServices(this IServiceCollection services)
     {
