@@ -72,6 +72,35 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
         return db.SaveChangesAsync(cancellationToken);
     }
 
+    public Task<int> UpdatePasswordHashAsync(Guid userId, string passwordHash,
+        CancellationToken cancellationToken = default)
+    {
+        RequireUserLock(userId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        if (passwordHash.Length > 255)
+            throw new ArgumentException("Password hash exceeds the database column limit.", nameof(passwordHash));
+
+        return db.Users.Where(x => x.Id == userId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.PasswordHash, passwordHash), cancellationToken);
+    }
+
+    public void AddLoginActivity(Guid userId, Guid familyId, DateTime occurredAtUtc)
+    {
+        RequireUserLock(userId);
+        RequireUtc(occurredAtUtc);
+        if (familyId == Guid.Empty)
+            throw new ArgumentException("A session family ID is required.", nameof(familyId));
+
+        // Do not accept free-form payloads that could accidentally contain secrets.
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = userId,
+            Timestamp = occurredAtUtc,
+            Action = "AUTH_LOGIN",
+            TargetObject = $"AuthSession:{familyId:D}"
+        });
+    }
+
     public Task<int> MarkRefreshTokenReplacedAsync(Guid userId, Guid tokenId, Guid replacementTokenId,
         DateTime revokedAtUtc, CancellationToken cancellationToken = default)
     {
@@ -113,13 +142,13 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
     {
         var transaction = RequireTransaction();
         if (lockTransactionId != transaction.TransactionId || !lockedUsers.Contains(userId))
-            throw new InvalidOperationException("Lock the user in the current transaction before changing refresh tokens.");
+            throw new InvalidOperationException("Lock the user in the current transaction before changing Auth data.");
     }
 
     private static void RequireUtc(DateTime value)
     {
         if (value.Kind != DateTimeKind.Utc)
-            throw new ArgumentException("The revocation timestamp must be UTC.", nameof(value));
+            throw new ArgumentException("The timestamp must be UTC.", nameof(value));
     }
 
     private sealed class AuthRepositoryTransaction(IDbContextTransaction transaction) : IAuthRepositoryTransaction

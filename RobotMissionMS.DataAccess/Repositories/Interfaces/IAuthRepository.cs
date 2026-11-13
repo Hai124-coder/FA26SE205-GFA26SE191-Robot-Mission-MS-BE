@@ -26,6 +26,20 @@ public interface IAuthRepository
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Immediately updates only PasswordHash in the current transaction.
+    /// Requires a user lock. The service supplies an already-generated hash.
+    /// Detached user snapshots are not updated; read again if needed.
+    /// </summary>
+    Task<int> UpdatePasswordHashAsync(Guid userId, string passwordHash,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stages a successful-login audit entry containing only user and session IDs.
+    /// Requires a user lock; call SaveChangesAsync explicitly before committing.
+    /// </summary>
+    void AddLoginActivity(Guid userId, Guid familyId, DateTime occurredAtUtc);
+
+    /// <summary>
     /// Immediately updates an unrevoked token in the current transaction.
     /// The replacement must already be saved and belong to the same user/family.
     /// Returns 0 if no matching update is possible; the service decides what to do.
