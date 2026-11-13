@@ -1,6 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using RobotMissionMS.Business.Features.Auth.Configuration;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.Business.Features.Auth.Services;
@@ -28,6 +32,42 @@ public static class AuthServiceCollectionExtensions
             .Bind(configuration.GetSection(AuthOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Configures bearer authentication from the already validated Jwt options.
+    /// Claims retain the names issued by JwtAccessTokenIssuer: sub, name, role,
+    /// sid, jti and iat.
+    /// </summary>
+    public static IServiceCollection AddJwtBearerAuthentication(this IServiceCollection services)
+    {
+        services.AddAuthorization();
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer();
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
+            {
+                var settings = jwtOptions.Value;
+                bearer.MapInboundClaims = false;
+                bearer.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(settings.SigningKey)),
+                    RequireSignedTokens = true,
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                    ValidateIssuer = true,
+                    ValidIssuer = settings.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = settings.Audience,
+                    ValidateLifetime = true,
+                    RequireExpirationTime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30),
+                    NameClaimType = "name",
+                    RoleClaimType = "role"
+                };
+            });
 
         return services;
     }
