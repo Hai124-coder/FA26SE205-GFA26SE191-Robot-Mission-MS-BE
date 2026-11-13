@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.DataAccess.Entities;
+using RobotMissionMS.DataAccess.Persistence.Configurations;
 
 namespace RobotMissionMS.DataAccess.Persistence;
 
@@ -43,6 +44,8 @@ public partial class RobotMissionDbContext : DbContext
     public virtual DbSet<MissionType> MissionTypes { get; set; }
 
     public virtual DbSet<Robot> Robots { get; set; }
+
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
     public virtual DbSet<RobotType> RobotTypes { get; set; }
 
@@ -696,6 +699,7 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200);
         });
 
+        modelBuilder.ApplyConfiguration(new RefreshTokenConfiguration());
         OnModelCreatingPartial(modelBuilder);
     }
 
