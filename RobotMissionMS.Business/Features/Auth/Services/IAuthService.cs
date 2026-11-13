@@ -1,0 +1,8 @@
+using RobotMissionMS.Business.Features.Auth.DTOs;
+
+namespace RobotMissionMS.Business.Features.Auth.Services;
+
+public interface IAuthService
+{
+    Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
+}
