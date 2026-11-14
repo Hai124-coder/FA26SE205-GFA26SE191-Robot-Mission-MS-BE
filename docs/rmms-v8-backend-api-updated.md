@@ -1,15 +1,20 @@
-<!-- Source: RMMS v8 – Danh sách API backend (2026-11-10). Faithful Markdown transcription. -->
-<!-- Status: proposed API specification; endpoint names and fields may change during backend detailed design. -->
+<!-- Source: RMMS v8 – Danh sách API backend updated.docx (prototype v8.2, dated 2026-11-10). -->
+<!-- Status: Proposed specification, not a finalized API contract. The original source is authoritative for disputed requirements. -->
+
+# RMMS v8 – Danh sách API backend (Updated for prototype v8.2)
+
 
 # RMMS v8 – Danh sách API backend
 
 Nov 10, 2026 · @Dinh Minh Tri
 
-Danh sách API REST mà backend .NET cần có để chuyển prototype v8 thành frontend ReactJS chạy thật. Mọi logic đang nằm trong prototype (chia ngăn, lập kế hoạch, xử lý sự cố, mô phỏng robot) chuyển sang backend; frontend chỉ hiển thị và gọi API. Nghiệp vụ chi tiết xem RMMS v8 – Scope hệ thống và RMMS v8 – Xử lý cảnh báo và sự cố.
+Danh sách API REST mà backend .NET cần có để chuyển prototype v8.2 thành frontend ReactJS chạy thật. Mọi logic đang nằm trong prototype (chia ngăn, lập kế hoạch, xử lý sự cố, mô phỏng robot) chuyển sang backend; frontend chỉ hiển thị và gọi API. Nghiệp vụ chi tiết xem RMMS v8 – Scope hệ thống và RMMS v8 – Xử lý cảnh báo và sự cố.
+
 
 ## 1. Quy ước chung
 
-Tổng cộng 93 endpoint REST chia 10 nhóm (mục 2–11), 1 hub realtime SignalR, và 1 endpoint chỉ dùng khi demo. Danh sách này là đề xuất; tên và trường có thể đổi khi nhóm backend thiết kế chi tiết.
+Tổng cộng 97 endpoint REST chia 10 nhóm (mục 2–11), 1 hub realtime SignalR, và 1 endpoint chỉ dùng khi demo. Danh sách này là đề xuất; tên và trường có thể đổi khi nhóm backend thiết kế chi tiết.
+
 
 - Đường dẫn gốc: /api/v1. JSON, tên trường camelCase. Thời gian theo ISO 8601 có múi giờ (2026-11-10T09:30:00+07:00).
 - Xác thực: JWT Bearer. Access token 30 phút, refresh token 7 ngày.
@@ -18,7 +23,11 @@ Tổng cộng 93 endpoint REST chia 10 nhóm (mục 2–11), 1 hub realtime Sign
 - Lỗi: chuẩn ProblemDetails của ASP.NET: { type, title, status, detail, errors }. Mã lỗi nghiệp vụ nằm trong type, ví dụ BR-11_SLOT_FULL, BR-14_PLAN_LOCKED, TASK_NOT_PENDING.
 - Ghi đồng thời: những bản ghi nhiều người cùng sửa (kế hoạch, sự cố, nhiệm vụ) có version; gửi If-Match khi ghi, sai thì trả 409.
 - Nhật ký: mọi API ghi đều tự ghi một dòng vào nhật ký hoạt động (ai, lúc nào, làm gì), frontend không phải gọi riêng.
+
+Phạm vi tầng: mỗi tài khoản Operator có trường floor. Backend tự lọc mọi API đọc của Operator theo tầng đó (robot, nhiệm vụ, hàng chờ, kế hoạch, chuyến, sự cố, lịch, trạm sạc, vị trí), frontend không cần gửi floor. Operator gọi API ghi lên bản ghi của tầng khác thì nhận 403 FLOOR_FORBIDDEN. Sự cố hệ thống không gắn robot (AI_DOWN, BROKER_DOWN) mọi Operator đều thấy. Supervisor và Admin thấy mọi tầng, có thể lọc bằng ?floor=.
+
 Các enum dùng chung:
+
 
 | Enum | Giá trị |
 | --- | --- |
@@ -26,33 +35,123 @@ Các enum dùng chung:
 | Priority | NORMAL, HIGH, URGENT |
 | MissionType | MEDICINE_DELIVERY, SUPPLY_DELIVERY, SPECIMEN_TRANSPORT, WASTE_COLLECTION, CORRIDOR_CLEANING |
 | RobotType | MED_CART, SUPPLY_CART, WASTE_CART, CLEAN_BOT |
-| RobotState | IDLE, MOVING, STOPPED, RETURNING, CHARGING, OFFLINE, FAULT, MAINTENANCE, WAITING, SUSPENDED |
+| RobotStatus | INACTIVE, AVAILABLE, ON_TRIP, CHARGING, ERROR, MAINTENANCE (theo FinalDB; kết nối là cờ riêng IsConnected) |
 | IncidentType | NOT_RECEIVED, WRONG_SLOT, PICKUP_SHORT, FAULT, OBSTACLE, CONGESTION, WRONG_WAY, NO_ROUTE, DISCONNECTED, LOW_BATTERY, MEET, SCHEDULE_LATE, AI_DOWN, BROKER_DOWN |
 | IncidentAction | ACCEPT, REASSIGN, REQUEUE, HUMAN, HUMAN_DONE, RESUME, WAIT_MORE, GO_ON, GO_PARTIAL, WAIT_CONN, AS_FAULT, BROKER_UP, MAINTENANCE, CHARGE, NOTIFY |
-| TripStatus | ACTIVE, DONE, TRANSFERRED, ABORTED |
+| TripStatus | PLANNED, DISPATCHED, IN_PROGRESS, COMPLETED, ABORTED (theo FinalDB) |
 | LocationKind | PHARMACY, STORAGE, SPECIMEN, DEPT, WASTE_STATION, WASTE_POINT, CHARGER, CLEAN_STATION, CORRIDOR |
+
+API và database trả tên theo FinalDB; frontend tự đổi sang tên tiếng Việt để hiển thị như prototype. Bảng đối chiếu:
+
+
+| Tên trên màn hình (robot) | status | isConnected |
+| --- | --- | --- |
+| Sẵn sàng | AVAILABLE | true |
+| Đang chạy, Dừng tại điểm | ON_TRIP | true |
+| Về trạm (còn trong chuyến, mang hàng về) | ON_TRIP | true |
+| Về trạm (đã xong chuyến) | AVAILABLE | true |
+| Đang sạc | CHARGING | true |
+| Báo lỗi | ERROR | true |
+| Bảo trì | MAINTENANCE | true |
+| Tạm ngưng | INACTIVE | true |
+| Chờ kết nối (robot mới đăng ký) | INACTIVE | false |
+| Mất kết nối | giữ giá trị trước đó | false |
+
+
+| Tên trên màn hình (chuyến) | Trip status |
+| --- | --- |
+| Chuyến trong kế hoạch đang soạn | PLANNED |
+| Đã phát lệnh, robot tới hoặc đang xếp hàng ở điểm lấy | DISPATCHED |
+| Đang chạy (đã rời điểm lấy, đang giao hoặc mang hàng về) | IN_PROGRESS |
+| Hoàn thành | COMPLETED |
+| Dừng giữa chừng (sự cố) | ABORTED |
+
 
 ## 2. Xác thực và người dùng
 
-Màn SC-02 Người dùng & vai trò và màn đăng nhập.
+Màn đăng nhập, màn đặt mật khẩu lần đầu và SC-02 Người dùng & vai trò. RMMS là web nội bộ nên không có API đăng ký: Administrator tạo tài khoản, backend sinh mật khẩu tạm, người dùng bắt buộc đổi mật khẩu ở lần đăng nhập đầu.
+
+
+- Admin gọi POST /users. Backend sinh mật khẩu tạm, trả về đúng một lần trong response, đặt mustChangePassword = true.
+- Admin đưa tên đăng nhập và mật khẩu tạm cho nhân viên.
+- Nhân viên gọi POST /auth/login bằng mật khẩu tạm. Response có mustChangePassword: true; frontend chuyển sang màn “Đặt mật khẩu mới”, chưa cho vào hệ thống.
+- Nhân viên gọi POST /auth/change-password. Thành công thì mustChangePassword = false và vào màn đầu của vai trò.
+- Đăng xuất: nút Đăng xuất trên thanh trên gọi POST /auth/logout, frontend xoá token và về màn đăng nhập để đăng nhập tài khoản khác.
+
+Quên mật khẩu. Hệ thống nội bộ không gửi email đặt lại (tài khoản không có email). Người dùng gửi yêu cầu, Administrator xác minh rồi đặt lại:
+
+
+- Ở màn đăng nhập bấm “Quên mật khẩu?”, nhập tên đăng nhập và ghi chú (không bắt buộc). Frontend gọi POST /auth/forgot-password, không cần token.
+- Backend luôn trả 202 với cùng một nội dung, dù tên đăng nhập có tồn tại hay không. Nếu tài khoản tồn tại, đang hoạt động và chưa có yêu cầu đang mở thì tạo một yêu cầu (OPEN).
+- Admin thấy số yêu cầu chờ ở menu Người dùng & vai trò và danh sách ở đầu màn SC-02 (GET /password-reset-requests).
+- Admin xác minh đúng người rồi gọi POST /users/{id}/reset-password (yêu cầu thành DONE, nhận mật khẩu tạm để đưa cho nhân viên), hoặc từ chối bằng POST /password-reset-requests/{id}/reject (REJECTED, mật khẩu giữ nguyên).
+- Nhân viên đăng nhập bằng mật khẩu tạm và đặt mật khẩu mới như lần đăng nhập đầu. Nếu nhân viên nhớ lại và đăng nhập được bằng mật khẩu cũ thì yêu cầu tự huỷ (CANCELLED).
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
-| POST | /auth/login | Tất cả | Đăng nhập bằng username, password. Trả accessToken, refreshToken, thông tin người dùng và vai trò |
+| POST | /auth/login | Tất cả | Đăng nhập bằng username, password. Trả accessToken, refreshToken, thông tin người dùng, vai trò, tầng được gán và mustChangePassword. Sai tên hoặc sai mật khẩu đều trả 401 INVALID_CREDENTIALS với cùng một thông báo. Tài khoản bị khoá: 403 ACCOUNT_LOCKED. Đăng nhập thành công thì huỷ yêu cầu đặt lại mật khẩu đang mở của chính tài khoản đó |
+| POST | /auth/change-password | Tất cả | Đổi mật khẩu: currentPassword, newPassword. Dùng cho lần đăng nhập đầu (currentPassword là mật khẩu tạm) và khi người dùng tự đổi. Thành công: mustChangePassword = false, thu hồi mọi refresh token cũ, trả cặp token mới |
+| POST | /auth/forgot-password | Không cần đăng nhập | Gửi yêu cầu đặt lại mật khẩu: username, note (tuỳ chọn, tối đa 120 ký tự). Luôn trả 202 với cùng nội dung để không lộ tài khoản nào tồn tại. Chỉ tạo yêu cầu khi tài khoản tồn tại, đang hoạt động và chưa có yêu cầu OPEN. Giới hạn số lần gọi theo IP |
 | POST | /auth/refresh | Tất cả | Đổi refresh token lấy access token mới |
-| POST | /auth/logout | Tất cả | Thu hồi refresh token |
-| GET | /auth/me | Tất cả | Người đang đăng nhập, vai trò, danh sách màn được xem và màn chỉ xem (để frontend dựng menu) |
-| GET | /users | Admin | Danh sách người dùng; lọc role, active |
-| POST | /users | Admin | Tạo người dùng: username, họ tên, vai trò, mật khẩu tạm |
-| PUT | /users/{id} | Admin | Sửa họ tên, vai trò |
-| PATCH | /users/{id}/status | Admin | Khoá hoặc mở khoá tài khoản (active: false) |
-| POST | /users/{id}/reset-password | Admin | Đặt lại mật khẩu tạm |
+| POST | /auth/logout | Tất cả | Đăng xuất: thu hồi refresh token. Frontend xoá token và về màn đăng nhập |
+| GET | /auth/me | Tất cả | Người đang đăng nhập, vai trò, floor (tầng của Operator; null với Supervisor và Admin), mustChangePassword, danh sách màn được xem và màn chỉ xem (để frontend dựng menu) |
+| GET | /users | Admin | Danh sách người dùng kèm floor, active, mustChangePassword (hiện nhãn “Chờ đổi mật khẩu”), hasOpenResetRequest (hiện nhãn “Yêu cầu đặt lại”), lastLoginAt; lọc role, floor, active |
+| POST | /users | Admin | Tạo người dùng: username, họ tên, vai trò, floor (bắt buộc khi vai trò là Operator, bỏ trống với vai trò khác). Admin không gửi mật khẩu: backend tự sinh mật khẩu tạm, trả tempPassword một lần trong response, đặt mustChangePassword = true |
+| PUT | /users/{id} | Admin | Sửa họ tên, vai trò, floor. Đổi sang Operator thì phải có floor; đổi sang vai trò khác thì floor về null |
+| PATCH | /users/{id}/status | Admin | Khoá hoặc mở khoá tài khoản (active: false); khoá thì thu hồi refresh token của người đó |
+| POST | /users/{id}/reset-password | Admin | Đặt lại mật khẩu: mật khẩu cũ hết hiệu lực ngay, backend sinh mật khẩu tạm mới và trả tempPassword một lần, đặt mustChangePassword = true, thu hồi refresh token, đóng (DONE) mọi yêu cầu đặt lại đang mở của người đó. Admin không gọi được cho chính mình (dùng /auth/change-password) |
+| GET | /password-reset-requests | Admin | Yêu cầu đặt lại mật khẩu: mã, người dùng, vai trò, tầng, ghi chú, thời điểm gửi, trạng thái (OPEN, DONE, REJECTED, CANCELLED), người xử lý. Lọc status (mặc định OPEN) |
+| POST | /password-reset-requests/{id}/reject | Admin | Từ chối một yêu cầu OPEN khi không xác minh được người gửi; mật khẩu giữ nguyên |
+
+Ví dụ tạo Operator tầng 3 (floor phải là mã tầng đang có, sai thì 400):
+
+
+```text
+POST /users
+{ "username": "tam.vm", "fullName": "Võ Minh Tâm", "role": "OPERATOR", "floor": "F3" }
+
+201 Created
+{ "id": 6, "username": "tam.vm", "fullName": "Võ Minh Tâm", "role": "OPERATOR", "floor": "F3",
+  "active": true, "mustChangePassword": true, "tempPassword": "Zp9p7QAMgh" }
+```
+
+Lần đăng nhập đầu của tài khoản đó:
+
+
+```text
+POST /auth/login
+{ "username": "tam.vm", "password": "Zp9p7QAMgh" }
+
+200 OK
+{ "accessToken": "...", "refreshToken": "...", "mustChangePassword": true,
+  "user": { "id": 6, "username": "tam.vm", "fullName": "Võ Minh Tâm", "role": "OPERATOR", "floor": "F3" } }
+
+POST /auth/change-password
+{ "currentPassword": "Zp9p7QAMgh", "newPassword": "Tam@12345" }
+
+200 OK
+{ "accessToken": "...", "refreshToken": "...", "mustChangePassword": false }
+```
+
+Quy tắc backend phải giữ:
+
+
+- Chặn khi chưa đổi mật khẩu: token của tài khoản còn mustChangePassword = true chỉ gọi được /auth/change-password, /auth/me, /auth/logout. Mọi API khác trả 403 PASSWORD_CHANGE_REQUIRED. Chặn ở backend, không chỉ ở frontend.
+- Quy tắc mật khẩu mới: ít nhất 8 ký tự, có cả chữ và số, khác tên đăng nhập (400 WEAK_PASSWORD), khác mật khẩu đang dùng (400 PASSWORD_SAME_AS_OLD). currentPassword sai: 400 WRONG_CURRENT_PASSWORD.
+- Mật khẩu tạm: 10 ký tự chữ và số, sinh ngẫu nhiên ở backend, chỉ trả một lần. Không có API nào xem lại; làm mất thì Admin đặt lại.
+- Lưu trữ: chỉ lưu hash (PasswordHasher của ASP.NET Core Identity). Không ghi mật khẩu hay mật khẩu tạm vào nhật ký; nhật ký chỉ ghi “Thêm người dùng”, “Đặt lại mật khẩu”, “Đổi mật khẩu” kèm tên tài khoản.
+
+Không có API nào cho người dùng tự đặt lại mật khẩu khi chưa đăng nhập: /auth/forgot-password chỉ tạo yêu cầu, việc đặt lại luôn qua Admin. Nhật ký ghi “Yêu cầu đặt lại mật khẩu” (người thực hiện: chưa đăng nhập), “Từ chối yêu cầu”, “Huỷ yêu cầu”.
+
+Hai điểm prototype chưa làm, nhóm quyết có cần không: mật khẩu tạm có hết hạn không (ví dụ sau 72 giờ), và có tạm khoá đăng nhập sau nhiều lần nhập sai không. Nếu sau này tài khoản có email, có thể thêm đặt lại qua email mà không đổi các API trên.
 
 Không xoá cứng người dùng, vì nhật ký và sự cố còn trỏ tới tên người xử lý; chỉ khoá.
+
 
 ## 3. Tầng, bản đồ, vị trí, trạm sạc
 
 Màn SC-03 Tầng & bản đồ, SC-04 Vị trí & điểm dừng; bản đồ còn dùng cho SC-13 Bản đồ trực tiếp. Bản đồ gồm node (vị trí) và đoạn đường (edge) nối các node.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -74,31 +173,35 @@ Màn SC-03 Tầng & bản đồ, SC-04 Vị trí & điểm dừng; bản đồ c
 
 Nhóm bản đồ (map-versions, edges, maintenance) theo nhóm sự cố D, prototype v8 chưa có màn cho phần này.
 
+
 ## 4. Robot và loại robot
 
 Màn SC-05 Robot (Admin), SC-14 Chi tiết robot, SC-13 Bản đồ trực tiếp. Vị trí và pin thay đổi liên tục nên frontend lấy ảnh chụp ban đầu bằng GET /robots, sau đó nhận cập nhật qua realtime (mục 12).
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
 | GET | /robot-types | Tất cả | 4 loại robot: số ngăn, kích thước và tải mỗi ngăn, tải trọng, tốc độ, loại trạm nhà |
 | PUT | /robot-types/{type} | Admin | Sửa thông số; kiểm tra số ngăn × tải mỗi ngăn ≤ tải trọng |
-| GET | /robots | Tất cả | Danh sách robot kèm trạng thái hiện tại: tầng, toạ độ, pin, state, connected, chuyến đang chạy, việc đang làm. Lọc floor, type, state |
-| GET | /robots/{id} | Tất cả | Chi tiết: trạng thái, từng ngăn (nhiệm vụ, khối lượng cảm biến), chuyến hiện tại, sự cố đang mở |
+| GET | /robots | Tất cả | Danh sách robot kèm trạng thái hiện tại: tầng, toạ độ, pin, status (FinalDB), isConnected, chuyến đang chạy, việc đang làm. Lọc floor, type, status, isConnected. Operator chỉ nhận robot tầng mình |
+| GET | /robots/{id} | Tất cả | Chi tiết: trạng thái, từng ngăn (nhiệm vụ, cảm biến báo còn hàng hay trống), chuyến hiện tại, sự cố đang mở |
 | GET | /robots/{id}/history | Tất cả | Chuyến, sự cố, lần sạc trong khoảng thời gian from, to |
-| POST | /robots | Admin | Thêm robot: mã, loại, tầng, trạm nhà, ghi chú |
+| POST | /robots | Admin | Thêm robot: mã, loại, tầng, trạm nhà, ghi chú. Robot mới là INACTIVE, isConnected = false tới khi gửi trạng thái đầu tiên |
 | PUT | /robots/{id} | Admin | Sửa trạm nhà, ghi chú |
-| DELETE | /robots/{id} | Admin | Cho robot ngừng hoạt động (xoá mềm, giữ lịch sử); từ chối nếu đang chạy chuyến |
-| POST | /robots/{id}/suspend | Operator, Admin | Tạm ngưng: robot làm nốt chuyến đang chạy rồi không nhận chuyến mới |
-| POST | /robots/{id}/resume | Operator, Admin | Cho robot hoạt động lại |
-| POST | /robots/{id}/charge | Operator | Gửi robot rảnh về sạc |
-| POST | /robots/{id}/maintenance | Operator | Đưa robot vào bảo trì |
-| POST | /robots/{id}/back-to-service | Operator | Bảo trì xong, robot về trạng thái sẵn sàng |
+| DELETE | /robots/{id} | Admin | Cho robot ngừng hoạt động (xoá mềm, giữ lịch sử); từ chối nếu đang ON_TRIP |
+| POST | /robots/{id}/suspend | Operator, Admin | Tạm ngưng: robot làm nốt chuyến đang chạy rồi thành INACTIVE |
+| POST | /robots/{id}/resume | Operator, Admin | INACTIVE → AVAILABLE |
+| POST | /robots/{id}/charge | Operator | Gửi robot AVAILABLE về sạc |
+| POST | /robots/{id}/maintenance | Operator | Đưa robot vào MAINTENANCE |
+| POST | /robots/{id}/back-to-service | Operator | Bảo trì xong: MAINTENANCE hoặc ERROR → AVAILABLE |
 
 Các lệnh trên được backend chuyển thành tin MQTT rmms/v1/{robotId}/command gửi xuống robot.
+
 
 ## 5. Danh mục hàng, loại nhiệm vụ, cấu hình
 
 Màn SC-08 Danh mục hàng, SC-06 Loại nhiệm vụ & luật. Danh mục hàng còn dùng cho ô chọn món ở SC-10 và để sinh file mẫu Excel.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -112,17 +215,19 @@ Màn SC-08 Danh mục hàng, SC-06 Loại nhiệm vụ & luật. Danh mục hàn
 | GET | /config | Tất cả | Cấu hình luật: ngưỡng pin (20%), thời gian dừng ở điểm lấy (60 giây), thời gian mất heartbeat (5 giây), lịch chờ tối đa (15 phút), điểm ưu tiên theo mức, trọng số AI, β |
 | PUT | /config | Admin | Sửa cấu hình luật |
 
+
 ## 6. Tạo nhiệm vụ và import Excel
 
 Màn SC-10 Tạo nhiệm vụ. Import đi theo 2 bước: tải lên để kiểm tra (chưa tạo gì) rồi xác nhận (tạo nhiệm vụ từ các dòng hợp lệ). Việc chia ngăn ⌈SL / sức chứa⌉ làm ở backend.
 
+
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
-| POST | /requests/preview | Operator | Xem trước một đơn lẻ: khoa, mã hàng, số lượng → hợp lệ không, sẽ chia thành mấy ngăn, khối lượng từng ngăn |
+| POST | /requests/preview | Operator | Xem trước một đơn lẻ: khoa, mã hàng, số lượng → hợp lệ không, sẽ chia thành mấy ngăn, khối lượng hàng từng ngăn tính từ danh mục |
 | POST | /requests | Operator | Tạo đơn lẻ. Trả mã yêu cầu YC-xxxx và các nhiệm vụ đã tạo (PENDING) |
 | GET | /requests/{requestCode} | Tất cả | Một yêu cầu và mọi nhiệm vụ tách từ nó |
 | GET | /imports/template | Operator | Tải file mẫu .xlsx “RMMS-YC v3” sinh từ danh mục hiện tại (sheet YeuCau, DanhMuc, _RMMS) |
-| POST | /imports | Operator | multipart/form-data, field file (.xlsx). Đọc và kiểm tra từng dòng, lưu lô ở trạng thái DRAFT. Trả bảng dòng: hợp lệ không, lý do (C1, C3), cách chia ngăn; cảnh báo nếu mẫu cũ |
+| POST | /imports | Operator | multipart/form-data, field file (.xlsx). Đọc và kiểm tra từng dòng, lưu lô ở trạng thái DRAFT. Với Operator, dòng của khoa ở tầng khác bị loại, lý do “Operator tầng X nhập dòng này”. Trả bảng dòng: hợp lệ không, lý do (C1, C3), cách chia ngăn; cảnh báo nếu mẫu cũ |
 | GET | /imports/{importId} | Operator, Supervisor | Chi tiết một lô import |
 | POST | /imports/{importId}/commit | Operator | Tạo nhiệm vụ từ các dòng hợp lệ; lô thành COMMITTED, ghi số dòng nhận, loại, số nhiệm vụ sinh ra |
 | DELETE | /imports/{importId} | Operator | Bỏ lô đang DRAFT |
@@ -132,7 +237,8 @@ Màn SC-10 Tạo nhiệm vụ. Import đi theo 2 bước: tải lên để kiể
 
 Ví dụ kết quả POST /imports:
 
-```json
+
+```text
 {
   "importId": "NH-003",
   "fileName": "nhu-cau-dot-9h.xlsx",
@@ -149,9 +255,11 @@ Ví dụ kết quả POST /imports:
 }
 ```
 
+
 ## 7. Nhiệm vụ, hàng chờ, lịch sử
 
 Màn SC-12 Hàng chờ, SC-19 Lịch sử nhiệm vụ. Một nhiệm vụ = một ngăn = một món cho một khoa.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -165,29 +273,33 @@ Màn SC-12 Hàng chờ, SC-19 Lịch sử nhiệm vụ. Một nhiệm vụ = m�
 
 Trường actions trong kết quả GET /tasks/{id} liệt kê thao tác được phép (EDIT, CANCEL, REDELIVER) để frontend bật/tắt nút, không phải tự suy từ trạng thái.
 
+
 ## 8. Điều phối (kế hoạch) và chuyến
 
 Màn SC-11 Điều phối, SC-17 Chuyến đang chạy, SC-22 Lịch sử điều phối. Tại mỗi thời điểm có tối đa một kế hoạch nháp (current). Thuật toán AI, thuật toán dự phòng và 4 luật ghép chuyến (BR-10, 11, 13, cùng tầng) chạy ở backend.
 
+
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
-| GET | /plans/current | Operator, Supervisor | Kế hoạch nháp: nguồn (AI hoặc FALLBACK), lý do lập, từng chuyến (robot, điểm lấy, thứ tự điểm giao, giờ dự kiến, quãng đường), đơn phải chờ và lý do, đơn dự kiến trễ và vì sao, so sánh với cách xếp đơn giản, số lần chỉnh tay. 204 nếu chưa có |
-| POST | /plans | Operator | Lập hoặc lập lại kế hoạch từ hàng chờ (ghi đè nháp cũ). AI không phản hồi thì dùng dự phòng và tạo cảnh báo AI_DOWN |
-| PATCH | /plans/current/tasks/{taskId} | Operator | Chuyển đơn sang robot khác hoặc về chờ (robotId: null). Lỗi BR-11_SLOT_FULL, BR-10_PICKUP_MISMATCH, BR-13_WRONG_TYPE. Trả kế hoạch đã tính lại |
+| GET | /plans/current | Operator, Supervisor | Kế hoạch nháp của tầng (Operator: tầng mình; Supervisor: ?floor=): nguồn (AI hoặc FALLBACK), lý do lập, từng chuyến PLANNED (robot, điểm lấy, thứ tự điểm giao, giờ dự kiến, quãng đường), đơn phải chờ và lý do, đơn dự kiến trễ và vì sao, so sánh với cách xếp đơn giản, số lần chỉnh tay. 204 nếu chưa có |
+| POST | /plans | Operator | Lập hoặc lập lại kế hoạch cho tầng của Operator từ hàng chờ (ghi đè nháp cũ). AI không phản hồi thì dùng thuật toán dự phòng (mỗi chuyến 1 đơn, lấy theo điểm ưu tiên từ cao xuống) và tạo cảnh báo AI_DOWN |
+| PATCH | /plans/current/tasks/{taskId} | Operator | Chuyển đơn sang robot khác hoặc về chờ (robotId: null). Lỗi BR-11_SLOT_FULL, BR-10_PICKUP_MISMATCH, BR-13_WRONG_TYPE, FLOOR_FORBIDDEN. Trả kế hoạch đã tính lại |
 | PATCH | /plans/current/tasks/{taskId}/priority | Operator | Đổi ưu tiên một đơn ngay trong kế hoạch; trả kế hoạch đã tính lại |
-| DELETE | /plans/current/trips/{robotId} | Operator | Bỏ một chuyến; các đơn của chuyến đó về chờ |
+| DELETE | /plans/current/trips/{robotId} | Operator | Bỏ một chuyến PLANNED; các đơn của chuyến đó về chờ |
 | DELETE | /plans/current | Operator | Bỏ kế hoạch |
-| POST | /plans/current/release | Operator | Phát lệnh: kiểm tra lại robot, tạo chuyến, nhiệm vụ thành ASSIGNED, gửi MQTT order. Nếu có robot không còn sẵn sàng: 409 PLAN_STALE kèm kế hoạch mới đã lập lại |
-| GET | /plans | Operator, Supervisor | Lịch sử các lần điều phối: giờ, người phát, nguồn, số chuyến, số đơn, số lần chỉnh tay, trễ dự kiến so với thực tế. Lọc from, to |
+| POST | /plans/current/release | Operator | Phát lệnh: kiểm tra lại robot (phải còn AVAILABLE, isConnected), chuyến PLANNED → DISPATCHED, robot → ON_TRIP, nhiệm vụ → ASSIGNED, gửi MQTT order. Nếu có robot không còn sẵn sàng: 409 PLAN_STALE kèm kế hoạch mới đã lập lại |
+| GET | /plans | Operator, Supervisor | Lịch sử các lần điều phối: giờ, người phát, tầng, nguồn, số chuyến, số đơn, số lần chỉnh tay, trễ dự kiến so với thực tế. Lọc floor, from, to |
 | GET | /plans/{planId} | Operator, Supervisor | Chi tiết một lần điều phối đã phát |
-| GET | /trips | Tất cả | Chuyến; lọc status (ACTIVE cho SC-17), kind (DELIVERY, REASSIGN, WASTE, CLEAN), robotId, floor, from, to |
-| GET | /trips/{tripId} | Tất cả | Chi tiết chuyến: điểm dừng, điểm hiện tại, từng ngăn (nhiệm vụ, đã lấy chưa, lúc nào) |
+| GET | /trips | Tất cả | Chuyến; lọc status (DISPATCHED và IN_PROGRESS cho SC-17; COMPLETED, ABORTED cho bảng chuyến đã kết thúc), kind (DELIVERY, REASSIGN, WASTE, CLEAN), robotId, floor, from, to |
+| GET | /trips/{tripId} | Tất cả | Chi tiết chuyến: status, điểm dừng, điểm hiện tại, từng ngăn (nhiệm vụ, cảm biến báo còn hàng hay trống, lúc nào trống) |
 
 Backend tự soạn kế hoạch khi một robot vừa rảnh mà còn đơn chờ đúng loại, rồi bắn sự kiện realtime plan.drafted để màn Điều phối hiện thông báo. Sau khi phát lệnh, chuyến chỉ đổi được qua API sự cố (BR-14).
+
 
 ## 9. Cảnh báo và sự cố
 
 Màn SC-16 Cảnh báo & sự cố. Backend phát hiện sự cố từ tin MQTT hoặc từ bộ đếm giờ (hết giờ chờ, mất heartbeat), tính đề xuất, và tự xử lý các trường hợp không cần người (B1 có robot thay, B3 robot tự vượt, A2, A1 quá 2 phút không phản hồi). Frontend chỉ cần một API hành động cho mọi nút.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -197,6 +309,7 @@ Màn SC-16 Cảnh báo & sự cố. Backend phát hiện sự cố từ tin MQTT
 | GET | /incidents/stats | Operator, Supervisor | Đang mở, đã xử lý (do Operator / tự động), thời gian xử lý trung bình, số nhiệm vụ giao tay. Lọc from, to |
 
 Nội dung gửi lên POST /incidents/{id}/actions:
+
 
 | action | Dùng cho | Trường thêm | Kết quả |
 | --- | --- | --- | --- |
@@ -217,9 +330,11 @@ Nội dung gửi lên POST /incidents/{id}/actions:
 
 Ví dụ: POST /incidents/SC-014/actions với {"action":"HUMAN","assignee":"Phạm Văn Khoa"}, giao xong gọi tiếp {"action":"HUMAN_DONE","after":"MAINTENANCE"}.
 
+
 ## 10. Lịch định kỳ và sạc
 
 Màn SC-15 Lịch định kỳ, SC-18 Trạm sạc. Tới giờ, backend tự tạo chuyến gom rác hoặc lau hành lang cho robot đúng loại; robot bận quá 15 phút thì tạo cảnh báo SCHEDULE_LATE (E1).
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -233,9 +348,11 @@ Màn SC-15 Lịch định kỳ, SC-18 Trạm sạc. Tới giờ, backend tự t�
 
 Trạng thái trạm sạc hiện tại nằm ở GET /charging-stations (mục 3). Robot tự về sạc khi pin dưới 20% là việc của backend, không cần API.
 
+
 ## 11. Tổng quan, báo cáo, nhật ký
 
 Màn SC-20 Tổng quan, SC-21 Báo cáo vận hành, SC-23 Hiệu suất robot, SC-07 Nhật ký. Các số tổng hợp tính ở backend, frontend chỉ vẽ.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -247,17 +364,20 @@ Màn SC-20 Tổng quan, SC-21 Báo cáo vận hành, SC-23 Hiệu suất robot, 
 | GET | /logs/export | Supervisor, Admin | Xuất nhật ký ra csv |
 | GET | /events | Tất cả | Sự kiện vận hành gần nhất cho khung “Diễn biến” trên bản đồ; since để lấy phần bị lỡ khi mất kết nối realtime |
 
+
 ## 12. Realtime cho frontend và cầu nối MQTT
 
 Frontend không nói chuyện trực tiếp với MQTT. Backend nghe MQTT từ robot, cập nhật dữ liệu, rồi đẩy thay đổi xuống trình duyệt qua SignalR (WebSocket của .NET).
 
+
 ### SignalR hub /hubs/ops
 
-Kết nối kèm access token. Sau khi kết nối, client gọi JoinFloor(floorCode) để chỉ nhận sự kiện robot của tầng đang xem; sự kiện khác gửi theo vai trò.
+Kết nối kèm access token. Sau khi kết nối, client gọi JoinFloor(floorCode) để chỉ nhận sự kiện của tầng đang xem; Operator chỉ được vào tầng của mình, Supervisor và Admin vào tầng nào cũng được. Sự kiện hệ thống (AI_DOWN, BROKER_DOWN) gửi cho mọi người.
+
 
 | Sự kiện server gửi | Khi nào | Dữ liệu | Màn dùng |
 | --- | --- | --- | --- |
-| robot.updated | Mỗi lần robot gửi state (khoảng 1 giây), đổi trạng thái, đổi kết nối | id, floor, x, y, battery, state, connected, tripId, điểm đang tới | SC-13, SC-14, SC-17, SC-18 |
+| robot.updated | Mỗi lần robot gửi state (khoảng 1 giây), đổi trạng thái, đổi kết nối | id, floor, x, y, battery, status, isConnected, tripId, điểm đang tới | SC-13, SC-14, SC-17, SC-18 |
 | task.updated | Nhiệm vụ đổi trạng thái | id, status, robotId, slot, reason | SC-12, SC-17, SC-19 |
 | trip.updated | Tới hoặc rời điểm dừng, ngăn được lấy, chuyến kết thúc | tripId, idx, stops, slots | SC-17, SC-13 |
 | incident.created / incident.updated | Có cảnh báo mới hoặc sự cố đổi giai đoạn | bản tóm tắt sự cố | SC-16, thông báo góc màn hình |
@@ -266,7 +386,11 @@ Kết nối kèm access token. Sau khi kết nối, client gọi JoinFloor(floor
 | import.received | File mới vào hộp thư bệnh viện | fileId, tên file | SC-10 |
 | event.logged | Sự kiện vận hành mới | thời gian, loại, nội dung | Khung diễn biến SC-13 |
 
+Thêm một sự kiện chỉ gửi cho Admin: passwordReset.requested (mã yêu cầu, username, thời điểm), để menu Người dùng & vai trò hiện số yêu cầu chờ và màn SC-02 tự cập nhật.
+
+
 ### Cầu nối MQTT (nội bộ backend)
+
 
 | Topic | Backend làm gì |
 | --- | --- |
@@ -278,21 +402,24 @@ Kết nối kèm access token. Sau khi kết nối, client gọi JoinFloor(floor
 
 Bộ đếm giờ chạy nền (BackgroundService) cần có: hết giờ chờ ở khoa (A1), 15 giây tự đi (A2), 2 phút chờ Operator (A1), hết giờ xếp hàng (A5), heartbeat 5 giây (B5), giờ lịch định kỳ và 15 phút chờ (E1), điểm chờ tăng dần trong hàng chờ.
 
+
 ### Endpoint chỉ dùng khi demo
 
 Khung “Giả lập tình huống” của prototype không có trong hệ thống thật: sự cố đến từ Webots. Nếu nhóm muốn giữ khung này để demo, thêm POST /dev/scenarios với { "code": "B2", "robotId": "MED-01" }, chỉ bật ở môi trường Development; backend gửi lệnh tạo tình huống sang controller Webots.
 
+
 ## 13. Màn hình gọi API nào, và thứ tự nên làm
+
 
 | Màn | API khi mở màn | API khi bấm nút | Realtime |
 | --- | --- | --- | --- |
-| Đăng nhập, menu | — | POST /auth/login, GET /auth/me | — |
+| Đăng nhập, đặt mật khẩu lần đầu, đổi mật khẩu, quên mật khẩu, đăng xuất, menu | — | POST /auth/login, GET /auth/me, POST /auth/change-password, POST /auth/forgot-password, POST /auth/logout | — |
 | SC-13 Bản đồ trực tiếp | GET /floors/{f}/map, GET /robots?floor=, GET /events | — | robot.updated, trip.updated, event.logged |
 | SC-14 Chi tiết robot | GET /robots/{id}, GET /robots/{id}/history | suspend, resume, charge, maintenance, back-to-service | robot.updated |
 | SC-10 Tạo nhiệm vụ | GET /items, GET /locations?kind=DEPT, GET /hospital-files, GET /imports | POST /requests/preview, POST /requests, GET /imports/template, POST /imports, POST /imports/{id}/commit, DELETE /imports/{id} | import.received |
 | SC-12 Hàng chờ | GET /tasks/queue, GET /tasks?status=DELIVERY_FAILED | PUT /tasks/{id}, POST /tasks/{id}/cancel, POST /tasks/{id}/redeliver | queue.changed, task.updated |
 | SC-11 Điều phối | GET /plans/current | POST /plans, PATCH .../tasks/{id}, PATCH .../priority, DELETE .../trips/{robotId}, DELETE /plans/current, POST /plans/current/release | plan.drafted, robot.updated |
-| SC-17 Chuyến đang chạy | GET /trips?status=ACTIVE | — | trip.updated, task.updated |
+| SC-17 Chuyến đang chạy | GET /trips?status=DISPATCHED,IN_PROGRESS | — | trip.updated, task.updated |
 | SC-16 Cảnh báo & sự cố | GET /incidents, GET /incidents/{id}, GET /incidents/stats | POST /incidents/{id}/actions | incident.created, incident.updated |
 | SC-15 Lịch định kỳ | GET /schedules | POST, PUT, status, run, DELETE lịch | — |
 | SC-19 Lịch sử nhiệm vụ | GET /tasks, GET /tasks/{id}/timeline | — | — |
@@ -302,21 +429,23 @@ Khung “Giả lập tình huống” của prototype không có trong hệ th�
 | SC-22 Lịch sử điều phối | GET /plans, GET /plans/{id} | — | — |
 | SC-23 Hiệu suất robot | GET /reports/robot-performance | — | — |
 | SC-07 Nhật ký | GET /logs | GET /logs/export | — |
-| SC-02 Người dùng | GET /users | POST, PUT, status, reset-password | — |
+| SC-02 Người dùng | GET /users | POST, PUT, status, reset-password; GET /password-reset-requests và reject | — |
 | SC-03, SC-04 Tầng, vị trí | GET /floors, GET /floors/{f}/map, GET /locations | API nhóm 3 | — |
 | SC-05 Robot | GET /robot-types, GET /robots | API nhóm 4 | robot.updated |
 | SC-06, SC-08 Luật, danh mục | GET /mission-types, GET /config, GET /items | API nhóm 5 | — |
+
 
 ### Thứ tự nên làm
 
 Làm theo thứ tự dưới để mỗi bước có thể demo được ngay.
 
-1. Xác thực, người dùng, menu theo vai trò (nhóm 2).
-2. Dữ liệu nền và seed: tầng, vị trí, loại robot, danh mục hàng, loại nhiệm vụ, cấu hình (nhóm 3, 5; chỉ cần các API GET trước).
-3. Robot + cầu nối MQTT + SignalR robot.updated: bản đồ trực tiếp thấy robot Webots chạy.
-4. Tạo nhiệm vụ, import Excel, hàng chờ (nhóm 6, 7).
-5. Lập kế hoạch, phát lệnh, chuyến (nhóm 8): bắt đầu bằng thuật toán dự phòng vì đơn giản, thêm AI sau.
-6. Giao hàng bằng cảm biến và các bộ đếm giờ A1, A2; dòng thời gian nhiệm vụ.
-7. Cảnh báo và sự cố (nhóm 9), bắt đầu từ A1, B1, B2 rồi tới các loại còn lại.
-8. Lịch định kỳ và sạc (nhóm 10).
-9. Tổng quan, báo cáo, nhật ký, các API ghi của Admin (nhóm 11 và phần còn lại của 3, 4, 5).
+
+- Xác thực, người dùng, menu theo vai trò (nhóm 2).
+- Dữ liệu nền và seed: tầng, vị trí, loại robot, danh mục hàng, loại nhiệm vụ, cấu hình (nhóm 3, 5; chỉ cần các API GET trước).
+- Robot + cầu nối MQTT + SignalR robot.updated: bản đồ trực tiếp thấy robot Webots chạy.
+- Tạo nhiệm vụ, import Excel, hàng chờ (nhóm 6, 7).
+- Lập kế hoạch, phát lệnh, chuyến (nhóm 8): bắt đầu bằng thuật toán dự phòng vì đơn giản, thêm AI sau.
+- Giao hàng bằng cảm biến và các bộ đếm giờ A1, A2; dòng thời gian nhiệm vụ.
+- Cảnh báo và sự cố (nhóm 9), bắt đầu từ A1, B1, B2 rồi tới các loại còn lại.
+- Lịch định kỳ và sạc (nhóm 10).
+- Tổng quan, báo cáo, nhật ký, các API ghi của Admin (nhóm 11 và phần còn lại của 3, 4, 5).

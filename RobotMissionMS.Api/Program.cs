@@ -17,6 +17,9 @@ builder.Services.AddAuthConfiguration(builder.Configuration);
 builder.Services.AddAuthServices();
 builder.Services.AddUserServices();
 builder.Services.AddRobotServices();
+builder.Services.AddFloorServices();
+builder.Services.AddLocationServices();
+builder.Services.AddChargingStationServices();
 builder.Services.AddJwtBearerAuthentication();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
