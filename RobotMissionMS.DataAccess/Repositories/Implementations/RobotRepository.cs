@@ -193,4 +193,67 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             activeTrip,
             openAlerts);
     }
+
+    public async Task<RobotHistoryData?> GetRobotHistoryAsync(
+        Guid     robotId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await db.Robots.AsNoTracking()
+            .AnyAsync(r => r.Id == robotId, cancellationToken);
+        if (!exists) return null;
+
+        // Run 3 queries concurrently — same DbContext, same transaction-less read
+        var tripsTask = db.Trips.AsNoTracking()
+            .Where(t => t.RobotId == robotId
+                     && t.CreatedAt >= fromUtc
+                     && t.CreatedAt <= toUtc)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new RobotHistoryTripRow(
+                t.Id,
+                t.TripCode,
+                t.Status,
+                t.Missions.Count,
+                t.StartedAt,
+                t.CompletedAt,
+                t.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        var alertsTask = db.Alerts.AsNoTracking()
+            .Where(a => a.RobotId == robotId
+                     && a.CreatedAt >= fromUtc
+                     && a.CreatedAt <= toUtc)
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => new RobotHistoryAlertRow(
+                a.Id,
+                a.AlertType,
+                a.Severity,
+                a.Category,
+                a.Status,
+                a.Message,
+                a.CreatedAt,
+                a.ResolvedAt))
+            .ToListAsync(cancellationToken);
+
+        var chargingTask = db.ChargingSessions.AsNoTracking()
+            .Where(cs => cs.RobotId == robotId
+                      && cs.StartedAt >= fromUtc
+                      && cs.StartedAt <= toUtc)
+            .OrderByDescending(cs => cs.StartedAt)
+            .Select(cs => new RobotHistoryChargingSessionRow(
+                cs.Id,
+                cs.ChargingStation.Name,
+                cs.ChargingStation.Location.Code,
+                cs.StartedAt,
+                cs.EndedAt))
+            .ToListAsync(cancellationToken);
+
+        await Task.WhenAll(tripsTask, alertsTask, chargingTask);
+
+        return new RobotHistoryData(
+            await tripsTask,
+            await alertsTask,
+            await chargingTask);
+    }
 }

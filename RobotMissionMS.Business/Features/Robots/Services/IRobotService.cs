@@ -19,4 +19,13 @@ public interface IRobotService
     Task<RobotDetailResult> GetRobotDetailAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns trips, alerts and charging sessions for one robot within the
+    /// requested time window. Returns NotFound when the robot does not exist.
+    /// </summary>
+    Task<RobotHistoryResult> GetRobotHistoryAsync(
+        Guid                robotId,
+        RobotHistoryQuery   query,
+        CancellationToken   cancellationToken = default);
 }

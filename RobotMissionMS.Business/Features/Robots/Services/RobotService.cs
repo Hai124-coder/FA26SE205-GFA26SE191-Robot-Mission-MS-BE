@@ -137,7 +137,74 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         return RobotDetailResult.Success(detail);
     }
 
-    // ── enum helpers ────────────────────────────────────────────────────────
+    public async Task<RobotHistoryResult> GetRobotHistoryAsync(
+        Guid              robotId,
+        RobotHistoryQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var now    = DateTime.UtcNow;
+        var toUtc  = (query.To   ?? DateTimeOffset.UtcNow).UtcDateTime;
+        var fromUtc = (query.From ?? DateTimeOffset.UtcNow.AddDays(-7)).UtcDateTime;
+
+        if (fromUtc > toUtc)
+            (fromUtc, toUtc) = (toUtc, fromUtc);
+
+        var data = await repository.GetRobotHistoryAsync(robotId, fromUtc, toUtc, cancellationToken);
+        if (data is null)
+            return RobotHistoryResult.Failure(RobotHistoryError.NotFound);
+
+        var trips = data.Trips.Select(t => new RobotHistoryTripItem
+        {
+            TripId       = t.TripId,
+            TripCode     = t.TripCode,
+            Status       = TripStatusToString(t.Status),
+            MissionCount = t.MissionCount,
+            StartedAt    = t.StartedAt,
+            CompletedAt  = t.CompletedAt,
+            CreatedAt    = t.CreatedAt,
+        }).ToList();
+
+        var alerts = data.Alerts.Select(a => new RobotHistoryAlertItem
+        {
+            AlertId   = a.AlertId,
+            AlertType = a.AlertType,
+            Severity  = AlertSeverityToString(a.Severity),
+            Category  = AlertCategoryToString(a.Category),
+            Status    = AlertStatusToString(a.Status),
+            Message   = a.Message,
+            CreatedAt = a.CreatedAt,
+            ResolvedAt = a.ResolvedAt,
+        }).ToList();
+
+        var sessions = data.ChargingSessions.Select(cs => new RobotHistoryChargingSessionItem
+        {
+            SessionId           = cs.SessionId,
+            StationName         = cs.StationName,
+            StationLocationCode = cs.StationLocationCode,
+            StartedAt           = cs.StartedAt,
+            EndedAt             = cs.EndedAt,
+            DurationMinutes     = cs.EndedAt.HasValue
+                ? (cs.EndedAt.Value - cs.StartedAt).TotalMinutes
+                : null,
+        }).ToList();
+
+        return RobotHistoryResult.Success(new RobotHistoryResponse
+        {
+            Trips            = trips,
+            Alerts           = alerts,
+            ChargingSessions = sessions,
+        });
+    }
+
+    private static string AlertStatusToString(AlertStatus status) => status switch
+    {
+        AlertStatus.Open         => "OPEN",
+        AlertStatus.Acknowledged => "ACKNOWLEDGED",
+        AlertStatus.Resolved     => "RESOLVED",
+        _                        => status.ToString().ToUpperInvariant()
+    };
 
     private static bool TryParseRobotState(string value, out RobotState result)
     {

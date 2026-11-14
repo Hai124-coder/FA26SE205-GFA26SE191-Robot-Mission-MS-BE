@@ -20,6 +20,16 @@ public interface IRobotRepository
     /// Returns null when no robot with the given id exists.
     /// </summary>
     Task<RobotDetailRow?> GetRobotByIdAsync(Guid robotId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns trips, alerts and charging sessions for one robot within [fromUtc, toUtc].
+    /// Returns null when no robot with the given id exists.
+    /// </summary>
+    Task<RobotHistoryData?> GetRobotHistoryAsync(
+        Guid     robotId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record RobotListRow(
@@ -92,4 +102,39 @@ public sealed record RobotAlertRow(
     AlertCategory Category,
     string        Message,
     DateTime      CreatedAt
+);
+
+public sealed record RobotHistoryData(
+    IReadOnlyList<RobotHistoryTripRow>            Trips,
+    IReadOnlyList<RobotHistoryAlertRow>           Alerts,
+    IReadOnlyList<RobotHistoryChargingSessionRow> ChargingSessions
+);
+
+public sealed record RobotHistoryTripRow(
+    Guid       TripId,
+    string     TripCode,
+    TripStatus Status,
+    int        MissionCount,
+    DateTime?  StartedAt,
+    DateTime?  CompletedAt,
+    DateTime   CreatedAt
+);
+
+public sealed record RobotHistoryAlertRow(
+    Guid          AlertId,
+    string        AlertType,
+    AlertSeverity Severity,
+    AlertCategory Category,
+    AlertStatus   Status,
+    string        Message,
+    DateTime      CreatedAt,
+    DateTime?     ResolvedAt
+);
+
+public sealed record RobotHistoryChargingSessionRow(
+    Guid     SessionId,
+    string   StationName,
+    string   StationLocationCode,
+    DateTime StartedAt,
+    DateTime? EndedAt
 );
