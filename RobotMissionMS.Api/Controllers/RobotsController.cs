@@ -302,4 +302,41 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid charge result.")
         };
     }
+
+    /// <summary>
+    /// Puts a robot into maintenance mode (SC-14). Operator or Admin.
+    /// Refused with 409 if robot is on an active trip or already in maintenance.
+    /// </summary>
+    [HttpPost("{id:guid}/maintenance")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> MaintenanceRobot(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.MaintenanceRobotAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            MaintenanceRobotError.NotFound             => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            MaintenanceRobotError.OnActiveTrip         => Problem(
+                type: "ROBOTS_ON_ACTIVE_TRIP",
+                title: "Cannot put a robot into maintenance while it is on an active trip.",
+                statusCode: StatusCodes.Status409Conflict),
+            MaintenanceRobotError.AlreadyInMaintenance => Problem(
+                type: "ROBOTS_ALREADY_IN_MAINTENANCE",
+                title: "The robot is already in maintenance mode.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid maintenance result.")
+        };
+    }
 }

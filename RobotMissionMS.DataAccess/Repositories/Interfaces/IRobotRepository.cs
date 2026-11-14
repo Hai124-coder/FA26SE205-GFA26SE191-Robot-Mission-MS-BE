@@ -89,6 +89,14 @@ public interface IRobotRepository
     Task<ChargeRobotRepositoryResult> ChargeRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Puts a robot into maintenance. Only valid when robot is not on an active trip.
+    /// Sets State = MAINTENANCE.
+    /// </summary>
+    Task<MaintenanceRobotRepositoryResult> MaintenanceRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
@@ -271,5 +279,16 @@ public sealed class ChargeRobotRepositoryResult
     public ChargeRobotRepositoryError? Error { get; private init; }
     public static ChargeRobotRepositoryResult Success() => new() { IsSuccess = true };
     public static ChargeRobotRepositoryResult Failure(ChargeRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
+}
+
+public enum MaintenanceRobotRepositoryError { NotFound, OnActiveTrip, AlreadyInMaintenance }
+
+public sealed class MaintenanceRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public MaintenanceRobotRepositoryError? Error { get; private init; }
+    public static MaintenanceRobotRepositoryResult Success() => new() { IsSuccess = true };
+    public static MaintenanceRobotRepositoryResult Failure(MaintenanceRobotRepositoryError e) =>
         new() { IsSuccess = false, Error = e };
 }

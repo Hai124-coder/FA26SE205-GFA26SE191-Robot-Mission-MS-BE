@@ -351,6 +351,21 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         };
     }
 
+    public async Task<MaintenanceRobotResult> MaintenanceRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.MaintenanceRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess) return MaintenanceRobotResult.Success();
+        return repoResult.Error switch
+        {
+            MaintenanceRobotRepositoryError.NotFound            => MaintenanceRobotResult.Failure(MaintenanceRobotError.NotFound),
+            MaintenanceRobotRepositoryError.OnActiveTrip        => MaintenanceRobotResult.Failure(MaintenanceRobotError.OnActiveTrip),
+            MaintenanceRobotRepositoryError.AlreadyInMaintenance => MaintenanceRobotResult.Failure(MaintenanceRobotError.AlreadyInMaintenance),
+            _ => throw new InvalidOperationException("Unexpected maintenance robot repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch

@@ -71,4 +71,11 @@ public interface IRobotService
     Task<ChargeRobotResult> ChargeRobotAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Puts a robot into maintenance mode. Robot must not be on an active trip.
+    /// </summary>
+    Task<MaintenanceRobotResult> MaintenanceRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }
