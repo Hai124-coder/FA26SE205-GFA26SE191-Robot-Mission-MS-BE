@@ -274,6 +274,60 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         db.ChargingStations.AsNoTracking()
             .AnyAsync(cs => cs.Id == stationId, cancellationToken);
 
+    public async Task<CreateRobotRow?> UpdateRobotAsync(
+        Guid  robotId,
+        Guid? homeChargingStationId,
+        CancellationToken cancellationToken = default)
+    {
+        var updated = await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.HomeChargingStationId, homeChargingStationId),
+                cancellationToken);
+
+        if (updated == 0) return null;
+
+        // Reload joined data for response
+        var row = await (
+            from r       in db.Robots.AsNoTracking()
+            join zone    in db.Zones.AsNoTracking()      on r.ZoneId      equals zone.Id
+            join robType in db.RobotTypes.AsNoTracking() on r.RobotTypeId equals robType.Id
+            where r.Id == robotId
+            select new { r, zone, robType })
+            .SingleAsync(cancellationToken);
+
+        string? homeStationCode = homeChargingStationId.HasValue
+            ? await db.ChargingStations.AsNoTracking()
+                .Where(cs => cs.Id == homeChargingStationId.Value)
+                .Select(cs => (string?)cs.Location.Code)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+
+        return new CreateRobotRow(
+            row.r.Id,
+            row.r.RobotCode,
+            row.robType.TypeCode,
+            row.robType.Name,
+            row.zone.Code,
+            row.zone.Name,
+            RobotStateToString(row.r.State),
+            row.r.IsConnected,
+            row.r.Battery,
+            homeStationCode,
+            row.r.CreatedAt);
+    }
+
+    private static string RobotStateToString(RobotState state) => state switch
+    {
+        RobotState.Inactive    => "INACTIVE",
+        RobotState.Available   => "AVAILABLE",
+        RobotState.OnTrip      => "ON_TRIP",
+        RobotState.Charging    => "CHARGING",
+        RobotState.Error       => "ERROR",
+        RobotState.Maintenance => "MAINTENANCE",
+        _                      => state.ToString().ToUpperInvariant()
+    };
+
     public async Task<CreateRobotRepositoryResult> CreateRobotAsync(
         string  robotCode,
         Guid    robotTypeId,

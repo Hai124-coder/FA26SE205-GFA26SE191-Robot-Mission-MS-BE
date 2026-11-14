@@ -49,6 +49,14 @@ public interface IRobotRepository
 
     /// <summary>Returns true when a ChargingStation with the given id exists.</summary>
     Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates HomeChargingStationId of a robot. Returns the updated row or null if not found.
+    /// </summary>
+    Task<CreateRobotRow?> UpdateRobotAsync(
+        Guid  robotId,
+        Guid? homeChargingStationId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum CreateRobotRepositoryError

@@ -35,4 +35,12 @@ public interface IRobotService
     Task<CreateRobotResult> CreateRobotAsync(
         CreateRobotRequest request,
         CancellationToken  cancellationToken = default);
+
+    /// <summary>
+    /// Updates HomeChargingStationId of a robot. Admin only.
+    /// </summary>
+    Task<UpdateRobotResult> UpdateRobotAsync(
+        Guid              robotId,
+        UpdateRobotRequest request,
+        CancellationToken  cancellationToken = default);
 }

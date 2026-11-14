@@ -136,4 +136,38 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid create result.")
         };
     }
+
+    /// <summary>
+    /// Updates a robot's home charging station (SC-05). Admin only.
+    /// Notes column is not in the current schema.
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    [ProducesResponseType(typeof(CreateRobotResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CreateRobotResponse>> UpdateRobot(
+        Guid id,
+        [FromBody] UpdateRobotRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.UpdateRobotAsync(id, request, cancellationToken);
+        if (result.IsSuccess)
+            return Ok(result.Response!);
+
+        return result.Error switch
+        {
+            UpdateRobotError.NotFound           => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            UpdateRobotError.HomeStationNotFound => Problem(
+                type: "ROBOTS_STATION_NOT_FOUND",
+                title: "The specified home charging station was not found.",
+                statusCode: StatusCodes.Status400BadRequest),
+            _ => throw new InvalidOperationException("Robot service returned an invalid update result.")
+        };
+    }
 }
