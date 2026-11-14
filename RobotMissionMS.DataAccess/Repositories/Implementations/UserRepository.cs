@@ -17,6 +17,13 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             .Select(role => new RoleRecord(role.Id, role.Name))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public Task<UserListRow?> FindUserByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        db.Users.AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => new UserListRow(
+                user.Id, user.Username, user.FullName, user.Email, user.Role.Name, user.IsActive, user.CreatedAt))
+            .SingleOrDefaultAsync(cancellationToken);
+
     public async Task<UserListPage> GetUsersAsync(
         int skip,
         int take,
@@ -92,5 +99,36 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             db.ChangeTracker.Clear();
             return UserCreateDataResult.Failure(UserCreateDataError.UsernameAlreadyExists);
         }
+    }
+
+    public async Task<UserUpdateDataResult> UpdateUserAsync(
+        Guid userId,
+        string fullName,
+        Guid roleId,
+        Guid updatedByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("The timestamp must be UTC.", nameof(occurredAtUtc));
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var updated = await db.Users.Where(user => user.Id == userId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.FullName, fullName)
+                .SetProperty(user => user.RoleId, roleId), cancellationToken);
+        if (updated == 0)
+            return UserUpdateDataResult.Failure(UserUpdateDataError.UserNotFound);
+
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = updatedByUserId,
+            Timestamp = occurredAtUtc,
+            Action = "USER_UPDATED",
+            TargetObject = $"User:{userId:D}"
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return UserUpdateDataResult.Success();
     }
 }

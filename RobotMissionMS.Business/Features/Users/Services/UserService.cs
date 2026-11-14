@@ -9,6 +9,48 @@ namespace RobotMissionMS.Business.Features.Users.Services;
 
 public sealed class UserService(IUserRepository repository, IPasswordService passwords, TimeProvider clock) : IUserService
 {
+    public async Task<UpdateUserResult> UpdateUserAsync(Guid updatedByUserId, Guid userId, UpdateUserRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (updatedByUserId == Guid.Empty || userId == Guid.Empty
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
+            || string.IsNullOrWhiteSpace(request.FullName)
+            || string.IsNullOrWhiteSpace(request.Role))
+            return UpdateUserResult.Failure(UpdateUserError.InvalidRequest);
+
+        var user = await repository.FindUserByIdAsync(userId, cancellationToken);
+        if (user is null)
+            return UpdateUserResult.Failure(UpdateUserError.UserNotFound);
+
+        var role = await repository.FindRoleByNameAsync(request.Role, cancellationToken);
+        if (role is null)
+            return UpdateUserResult.Failure(UpdateUserError.RoleNotFound);
+
+        var updatedAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
+        var dataResult = await repository.UpdateUserAsync(
+            userId, request.FullName, role.Id, updatedByUserId, updatedAt.UtcDateTime, cancellationToken);
+        if (!dataResult.IsSuccess)
+        {
+            return dataResult.Error switch
+            {
+                UserUpdateDataError.UserNotFound => UpdateUserResult.Failure(UpdateUserError.UserNotFound),
+                _ => throw new InvalidOperationException("User repository returned an invalid update result.")
+            };
+        }
+
+        return UpdateUserResult.Success(new UserListItemResponse
+        {
+            Id = user.Id,
+            Username = user.Username,
+            FullName = request.FullName,
+            Email = user.Email,
+            Role = role.Name,
+            IsActive = user.IsActive,
+            CreatedAt = new DateTimeOffset(user.CreatedAt)
+        });
+    }
+
     public async Task<CreateUserResult> CreateUserAsync(Guid createdByUserId, CreateUserRequest request,
         CancellationToken cancellationToken = default)
     {

@@ -15,6 +15,7 @@ public interface IUserRepository
 
     Task<bool> UsernameExistsAsync(string username, CancellationToken cancellationToken = default);
     Task<RoleRecord?> FindRoleByNameAsync(string roleName, CancellationToken cancellationToken = default);
+    Task<UserListRow?> FindUserByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Saves the new account and its audit line atomically. The raw password is
@@ -23,6 +24,18 @@ public interface IUserRepository
     Task<UserCreateDataResult> CreateUserAsync(
         UserCreateRecord user,
         Guid createdByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes the permitted administrative fields and adds its audit entry in
+    /// one transaction.
+    /// </summary>
+    Task<UserUpdateDataResult> UpdateUserAsync(
+        Guid userId,
+        string fullName,
+        Guid roleId,
+        Guid updatedByUserId,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
 }
@@ -65,4 +78,22 @@ public sealed class UserCreateDataResult
     public static UserCreateDataResult Success() => new(null);
 
     public static UserCreateDataResult Failure(UserCreateDataError error) => new(error);
+}
+
+public enum UserUpdateDataError
+{
+    UserNotFound
+}
+
+public sealed class UserUpdateDataResult
+{
+    private UserUpdateDataResult(UserUpdateDataError? error) => Error = error;
+
+    public UserUpdateDataError? Error { get; }
+
+    public bool IsSuccess => Error is null;
+
+    public static UserUpdateDataResult Success() => new(null);
+
+    public static UserUpdateDataResult Failure(UserUpdateDataError error) => new(error);
 }

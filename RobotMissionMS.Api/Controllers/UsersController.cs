@@ -14,6 +14,41 @@ namespace RobotMissionMS.Api.Controllers;
 [Authorize(Policy = AuthPolicies.AdminOnly)]
 public sealed class UsersController(IUserService userService) : ControllerBase
 {
+    [HttpPut("{id:guid}")]
+    [ProducesResponseType(typeof(UserListItemResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserListItemResponse>> UpdateUser(
+        Guid id,
+        [FromBody] UpdateUserRequest request,
+        CancellationToken cancellationToken)
+    {
+        var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        if (!Guid.TryParse(subject, out var updatedByUserId))
+            return Unauthorized();
+
+        var result = await userService.UpdateUserAsync(updatedByUserId, id, request, cancellationToken);
+        if (result.IsSuccess)
+            return Ok(result.Response!);
+
+        return result.Error switch
+        {
+            UpdateUserError.InvalidRequest => Problem(
+                type: "USERS_INVALID_UPDATE_REQUEST",
+                title: "The user update request is invalid.",
+                statusCode: StatusCodes.Status400BadRequest),
+            UpdateUserError.UserNotFound => Problem(
+                type: "USERS_NOT_FOUND",
+                title: "The requested user was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            UpdateUserError.RoleNotFound => Problem(
+                type: "USERS_ROLE_NOT_FOUND",
+                title: "The requested role does not exist.",
+                statusCode: StatusCodes.Status400BadRequest),
+            _ => throw new InvalidOperationException("User service returned an invalid update result.")
+        };
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(UserListItemResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]

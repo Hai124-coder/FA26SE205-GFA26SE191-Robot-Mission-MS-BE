@@ -8,4 +8,6 @@ public interface IUserService
     Task<UserListResult> GetUsersAsync(UserListQuery query, CancellationToken cancellationToken = default);
     Task<CreateUserResult> CreateUserAsync(Guid createdByUserId, CreateUserRequest request,
         CancellationToken cancellationToken = default);
+    Task<UpdateUserResult> UpdateUserAsync(Guid updatedByUserId, Guid userId, UpdateUserRequest request,
+        CancellationToken cancellationToken = default);
 }
