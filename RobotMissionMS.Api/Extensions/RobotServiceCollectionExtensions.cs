@@ -10,6 +10,10 @@ public static class RobotServiceCollectionExtensions
     {
         services.AddScoped<IRobotTypeRepository, RobotTypeRepository>();
         services.AddScoped<IRobotTypeService, RobotTypeService>();
+
+        services.AddScoped<IRobotRepository, RobotRepository>();
+        services.AddScoped<IRobotService, RobotService>();
+
         return services;
     }
 }
