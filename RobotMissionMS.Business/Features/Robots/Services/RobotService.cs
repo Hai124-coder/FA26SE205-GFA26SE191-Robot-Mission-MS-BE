@@ -314,14 +314,26 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         CancellationToken cancellationToken = default)
     {
         var repoResult = await repository.SuspendRobotAsync(robotId, cancellationToken);
-        if (repoResult.IsSuccess)
-            return SuspendRobotResult.Success();
-
+        if (repoResult.IsSuccess) return SuspendRobotResult.Success();
         return repoResult.Error switch
         {
-            SuspendRobotRepositoryError.NotFound        => SuspendRobotResult.Failure(SuspendRobotError.NotFound),
+            SuspendRobotRepositoryError.NotFound         => SuspendRobotResult.Failure(SuspendRobotError.NotFound),
             SuspendRobotRepositoryError.AlreadySuspended => SuspendRobotResult.Failure(SuspendRobotError.AlreadySuspended),
             _ => throw new InvalidOperationException("Unexpected suspend robot repository error.")
+        };
+    }
+
+    public async Task<ResumeRobotResult> ResumeRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.ResumeRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess) return ResumeRobotResult.Success();
+        return repoResult.Error switch
+        {
+            ResumeRobotRepositoryError.NotFound     => ResumeRobotResult.Failure(ResumeRobotError.NotFound),
+            ResumeRobotRepositoryError.NotSuspended => ResumeRobotResult.Failure(ResumeRobotError.NotSuspended),
+            _ => throw new InvalidOperationException("Unexpected resume robot repository error.")
         };
     }
 

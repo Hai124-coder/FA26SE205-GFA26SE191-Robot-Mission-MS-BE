@@ -73,6 +73,14 @@ public interface IRobotRepository
     Task<SuspendRobotRepositoryResult> SuspendRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resumes a suspended robot: sets State back to AVAILABLE.
+    /// Only valid when State = MAINTENANCE (suspended).
+    /// </summary>
+    Task<ResumeRobotRepositoryResult> ResumeRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
@@ -233,5 +241,16 @@ public sealed class SuspendRobotRepositoryResult
     public SuspendRobotRepositoryError? Error { get; private init; }
     public static SuspendRobotRepositoryResult Success() => new() { IsSuccess = true };
     public static SuspendRobotRepositoryResult Failure(SuspendRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
+}
+
+public enum ResumeRobotRepositoryError { NotFound, NotSuspended }
+
+public sealed class ResumeRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public ResumeRobotRepositoryError? Error { get; private init; }
+    public static ResumeRobotRepositoryResult Success() => new() { IsSuccess = true };
+    public static ResumeRobotRepositoryResult Failure(ResumeRobotRepositoryError e) =>
         new() { IsSuccess = false, Error = e };
 }
