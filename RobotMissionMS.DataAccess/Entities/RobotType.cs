@@ -17,6 +17,10 @@ public partial class RobotType
 
     public string? Description { get; set; }
 
+    public decimal? MaxLoadPerSlotKg { get; set; }
+
+    public decimal? MaxPayloadKg { get; set; }
+
     public virtual ICollection<MissionType> MissionTypes { get; set; } = new List<MissionType>();
 
     public virtual ICollection<Robot> Robots { get; set; } = new List<Robot>();

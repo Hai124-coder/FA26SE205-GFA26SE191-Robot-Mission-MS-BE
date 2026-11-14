@@ -37,6 +37,8 @@ public partial class Location
 
     public virtual ICollection<Mission> MissionToLocations { get; set; } = new List<Mission>();
 
+    public virtual ICollection<MissionTypePickupLocation> MissionTypePickupLocations { get; set; } = new List<MissionTypePickupLocation>();
+
     public virtual ICollection<TripStop> TripStops { get; set; } = new List<TripStop>();
 
     public virtual Zone Zone { get; set; } = null!;

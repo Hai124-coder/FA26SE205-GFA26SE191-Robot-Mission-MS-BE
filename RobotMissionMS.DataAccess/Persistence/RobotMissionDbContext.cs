@@ -43,6 +43,8 @@ public partial class RobotMissionDbContext : DbContext
 
     public virtual DbSet<MissionType> MissionTypes { get; set; }
 
+    public virtual DbSet<MissionTypePickupLocation> MissionTypePickupLocations { get; set; }
+
     public virtual DbSet<Robot> Robots { get; set; }
 
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
@@ -230,6 +232,9 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.Code).HasMaxLength(50);
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.MaxQtyPerSlot).HasComment("max quantity of this item in one slot");
+            entity.Property(e => e.KgPerUnit).HasPrecision(8, 3);
+            entity.Property(e => e.Packaging).HasMaxLength(100);
+            entity.Property(e => e.CapacityLimitReason).HasMaxLength(20);
             entity.Property(e => e.MissionTypeId).HasComment("which mission type (robot type) carries this item");
             entity.Property(e => e.Name).HasMaxLength(200);
             entity.Property(e => e.Unit)
@@ -514,11 +519,31 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.WaitTimeoutSec)
                 .HasDefaultValue(180)
                 .HasComment("alert Operator after this (placeholder default)");
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
 
             entity.HasOne(d => d.RobotType).WithMany(p => p.MissionTypes)
                 .HasForeignKey(d => d.RobotTypeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("MissionTypes_RobotTypeId_fkey");
+        });
+
+        modelBuilder.Entity<MissionTypePickupLocation>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("MissionTypePickupLocations_pkey");
+            entity.HasIndex(e => new { e.MissionTypeId, e.ZoneId }, "MissionTypePickupLocations_MissionTypeId_ZoneId_key").IsUnique();
+            entity.HasIndex(e => e.LocationId, "MissionTypePickupLocations_LocationId_idx");
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+            entity.HasOne(e => e.MissionType).WithMany(e => e.MissionTypePickupLocations).HasForeignKey(e => e.MissionTypeId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("MissionTypePickupLocations_MissionTypeId_fkey");
+            entity.HasOne(e => e.Zone).WithMany(e => e.MissionTypePickupLocations).HasForeignKey(e => e.ZoneId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("MissionTypePickupLocations_ZoneId_fkey");
+            entity.HasOne(e => e.Location).WithMany(e => e.MissionTypePickupLocations).HasForeignKey(e => new { e.LocationId, e.ZoneId })
+                .HasPrincipalKey(e => new { e.Id, e.ZoneId }).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("MissionTypePickupLocations_LocationId_ZoneId_fkey");
+            entity.HasOne(e => e.UpdatedByUser).WithMany(e => e.MissionTypePickupLocationsUpdatedByUsers).HasForeignKey(e => e.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("MissionTypePickupLocations_UpdatedByUserId_fkey");
         });
 
         modelBuilder.Entity<Robot>(entity =>
@@ -561,6 +586,8 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.ColorHex).HasMaxLength(20);
             entity.Property(e => e.Name).HasMaxLength(100);
+            entity.Property(e => e.MaxLoadPerSlotKg).HasPrecision(6, 2);
+            entity.Property(e => e.MaxPayloadKg).HasPrecision(6, 2);
             entity.Property(e => e.Slots).HasDefaultValue(0);
             entity.Property(e => e.TypeCode).HasMaxLength(50);
         });

@@ -33,11 +33,15 @@ public partial class MissionType
     /// </summary>
     public int WaitTimeoutSec { get; set; }
 
+    public bool IsActive { get; set; }
+
     public virtual ICollection<Item> Items { get; set; } = new List<Item>();
 
     public virtual ICollection<MissionSchedule> MissionSchedules { get; set; } = new List<MissionSchedule>();
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();
+
+    public virtual ICollection<MissionTypePickupLocation> MissionTypePickupLocations { get; set; } = new List<MissionTypePickupLocation>();
 
     public virtual RobotType RobotType { get; set; } = null!;
 }

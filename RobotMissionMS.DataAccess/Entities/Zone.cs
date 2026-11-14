@@ -29,6 +29,8 @@ public partial class Zone
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();
 
+    public virtual ICollection<MissionTypePickupLocation> MissionTypePickupLocations { get; set; } = new List<MissionTypePickupLocation>();
+
     public virtual ICollection<Robot> Robots { get; set; } = new List<Robot>();
 
     public virtual ICollection<Trip> Trips { get; set; } = new List<Trip>();

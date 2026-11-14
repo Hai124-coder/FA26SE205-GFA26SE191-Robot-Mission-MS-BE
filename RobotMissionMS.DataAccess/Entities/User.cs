@@ -41,6 +41,8 @@ public partial class User
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();
 
+    public virtual ICollection<MissionTypePickupLocation> MissionTypePickupLocationsUpdatedByUsers { get; set; } = new List<MissionTypePickupLocation>();
+
     public virtual Role Role { get; set; } = null!;
 
     public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

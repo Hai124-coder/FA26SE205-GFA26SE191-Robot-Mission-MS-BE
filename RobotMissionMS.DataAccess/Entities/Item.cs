@@ -33,6 +33,12 @@ public partial class Item
 
     public string? Description { get; set; }
 
+    public string? Packaging { get; set; }
+
+    public decimal? KgPerUnit { get; set; }
+
+    public string? CapacityLimitReason { get; set; }
+
     public virtual MissionType MissionType { get; set; } = null!;
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();

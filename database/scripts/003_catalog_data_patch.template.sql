@@ -1,0 +1,28 @@
+-- Complete this reviewed data patch before enabling weight-based item writes or
+-- automatic request splitting. Do not execute placeholders as written.
+--
+-- Required inputs from operations:
+--   1. MaxLoadPerSlotKg for every robot type that carries items.
+--   2. Packaging, KgPerUnit, and CapacityLimitReason for every active item.
+--   3. One active pickup Location for each batch mission type on each active floor.
+--
+-- Example only:
+-- UPDATE public."RobotTypes"
+-- SET "MaxLoadPerSlotKg" = 12.50, "MaxPayloadKg" = 50.00
+-- WHERE "TypeCode" = 'MED_CART';
+--
+-- UPDATE public."Items"
+-- SET "Packaging" = 'box', "KgPerUnit" = 0.25, "CapacityLimitReason" = 'WEIGHT'
+-- WHERE "Code" = 'TH-PARA';
+--
+-- INSERT INTO public."MissionTypePickupLocations"
+--     ("Id", "MissionTypeId", "ZoneId", "LocationId", "UpdatedByUserId")
+-- SELECT gen_random_uuid(), mission_type."Id", zone."Id", location."Id", :admin_user_id
+-- FROM public."MissionTypes" mission_type
+-- JOIN public."Zones" zone ON zone."Code" = 'F2'
+-- JOIN public."Locations" location ON location."Code" = 'F2-PHARM'
+-- WHERE mission_type."Code" = 'MEDICINE_DELIVERY';
+--
+-- Before deploying the remaining catalogue APIs, verify:
+-- SELECT item."Code" FROM public."Items" item WHERE item."IsActive" AND item."KgPerUnit" IS NULL;
+-- SELECT type."TypeCode" FROM public."RobotTypes" type WHERE type."Slots" > 0 AND type."MaxLoadPerSlotKg" IS NULL;
