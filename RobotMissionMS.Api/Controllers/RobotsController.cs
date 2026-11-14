@@ -339,4 +339,37 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid maintenance result.")
         };
     }
+
+    /// <summary>
+    /// Returns a robot from maintenance back to service (SC-14). Operator or Admin.
+    /// Robot must be in MAINTENANCE state.
+    /// </summary>
+    [HttpPost("{id:guid}/back-to-service")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> BackToService(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.BackToServiceAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            BackToServiceRobotError.NotFound         => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            BackToServiceRobotError.NotInMaintenance => Problem(
+                type: "ROBOTS_NOT_IN_MAINTENANCE",
+                title: "The robot is not currently in maintenance mode.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid back-to-service result.")
+        };
+    }
 }

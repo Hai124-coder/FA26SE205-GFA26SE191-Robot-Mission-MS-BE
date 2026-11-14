@@ -353,6 +353,29 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         return SuspendRobotRepositoryResult.Success();
     }
 
+    public async Task<BackToServiceRepositoryResult> BackToServiceAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var robot = await db.Robots.AsNoTracking()
+            .Where(r => r.Id == robotId)
+            .Select(r => new { r.Id, r.State })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (robot is null)
+            return BackToServiceRepositoryResult.Failure(BackToServiceRepositoryError.NotFound);
+
+        if (robot.State != RobotState.Maintenance)
+            return BackToServiceRepositoryResult.Failure(BackToServiceRepositoryError.NotInMaintenance);
+
+        await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, RobotState.Available),
+                cancellationToken);
+
+        return BackToServiceRepositoryResult.Success();
+    }
+
     public async Task<MaintenanceRobotRepositoryResult> MaintenanceRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default)

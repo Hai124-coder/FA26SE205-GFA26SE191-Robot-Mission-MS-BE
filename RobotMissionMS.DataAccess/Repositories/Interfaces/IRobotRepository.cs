@@ -97,6 +97,14 @@ public interface IRobotRepository
     Task<MaintenanceRobotRepositoryResult> MaintenanceRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a robot from maintenance to service: sets State = AVAILABLE.
+    /// Only valid when State = MAINTENANCE.
+    /// </summary>
+    Task<BackToServiceRepositoryResult> BackToServiceAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
@@ -290,5 +298,16 @@ public sealed class MaintenanceRobotRepositoryResult
     public MaintenanceRobotRepositoryError? Error { get; private init; }
     public static MaintenanceRobotRepositoryResult Success() => new() { IsSuccess = true };
     public static MaintenanceRobotRepositoryResult Failure(MaintenanceRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
+}
+
+public enum BackToServiceRepositoryError { NotFound, NotInMaintenance }
+
+public sealed class BackToServiceRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public BackToServiceRepositoryError? Error { get; private init; }
+    public static BackToServiceRepositoryResult Success() => new() { IsSuccess = true };
+    public static BackToServiceRepositoryResult Failure(BackToServiceRepositoryError e) =>
         new() { IsSuccess = false, Error = e };
 }

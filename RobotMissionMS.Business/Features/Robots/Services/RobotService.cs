@@ -366,6 +366,20 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         };
     }
 
+    public async Task<BackToServiceRobotResult> BackToServiceAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.BackToServiceAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess) return BackToServiceRobotResult.Success();
+        return repoResult.Error switch
+        {
+            BackToServiceRepositoryError.NotFound         => BackToServiceRobotResult.Failure(BackToServiceRobotError.NotFound),
+            BackToServiceRepositoryError.NotInMaintenance => BackToServiceRobotResult.Failure(BackToServiceRobotError.NotInMaintenance),
+            _ => throw new InvalidOperationException("Unexpected back-to-service repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch
