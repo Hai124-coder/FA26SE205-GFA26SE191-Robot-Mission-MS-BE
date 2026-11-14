@@ -37,4 +37,29 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid list result.")
         };
     }
+
+    /// <summary>
+    /// Returns full detail for one robot: state, slot contents, active trip, open alerts (SC-14).
+    /// </summary>
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(RobotDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<RobotDetailResponse>> GetRobotById(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.GetRobotDetailAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return Ok(result.Response!);
+
+        return result.Error switch
+        {
+            RobotDetailError.NotFound => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            _ => throw new InvalidOperationException("Robot service returned an invalid detail result.")
+        };
+    }
 }
