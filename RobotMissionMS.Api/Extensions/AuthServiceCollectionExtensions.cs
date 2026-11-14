@@ -1,6 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -8,7 +10,9 @@ using Microsoft.IdentityModel.Tokens;
 using RobotMissionMS.Business.Features.Auth.Configuration;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.Business.Features.Auth.Services;
+using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.DataAccess.Entities;
+using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Implementations;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -43,9 +47,18 @@ public static class AuthServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddJwtBearerAuthentication(this IServiceCollection services)
     {
-        services.AddAuthorization();
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy(AuthPolicies.AdminOnly, policy =>
+                policy.RequireAuthenticatedUser().RequireRole("ADMIN"));
+            options.AddPolicy(AuthPolicies.OperatorOrAdmin, policy =>
+                policy.RequireAuthenticatedUser().RequireRole("OPERATOR", "ADMIN"));
+            options.AddPolicy(AuthPolicies.OperationsRead, policy =>
+                policy.RequireAuthenticatedUser().RequireRole("OPERATOR", "SUPERVISOR", "ADMIN"));
+        });
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer();
+        services.AddScoped<IClaimsTransformation, CurrentUserClaimsTransformation>();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
             {
@@ -66,6 +79,26 @@ public static class AuthServiceCollectionExtensions
                     ClockSkew = TimeSpan.FromSeconds(30),
                     NameClaimType = "name",
                     RoleClaimType = "role"
+                };
+                bearer.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async context =>
+                    {
+                        var subject = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                        if (!Guid.TryParse(subject, out var userId))
+                        {
+                            context.Fail("The token subject is invalid.");
+                            return;
+                        }
+
+                        var db = context.HttpContext.RequestServices.GetRequiredService<RobotMissionDbContext>();
+                        var isActive = await db.Users.AsNoTracking()
+                            .Where(user => user.Id == userId)
+                            .Select(user => (bool?)user.IsActive)
+                            .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
+                        if (isActive != true)
+                            context.Fail("The user is no longer active.");
+                    }
                 };
             });
 
