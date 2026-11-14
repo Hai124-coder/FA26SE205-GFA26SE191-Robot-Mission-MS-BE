@@ -269,4 +269,37 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid resume result.")
         };
     }
+
+    /// <summary>
+    /// Sends an idle robot to its charging station (SC-14). Operator only.
+    /// Robot must be AVAILABLE.
+    /// </summary>
+    [HttpPost("{id:guid}/charge")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChargeRobot(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.ChargeRobotAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            ChargeRobotError.NotFound     => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            ChargeRobotError.NotAvailable => Problem(
+                type: "ROBOTS_NOT_AVAILABLE",
+                title: "Only an idle (AVAILABLE) robot can be sent to charge.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid charge result.")
+        };
+    }
 }

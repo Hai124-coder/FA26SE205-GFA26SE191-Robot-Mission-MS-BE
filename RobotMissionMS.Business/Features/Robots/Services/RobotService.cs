@@ -337,6 +337,20 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         };
     }
 
+    public async Task<ChargeRobotResult> ChargeRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.ChargeRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess) return ChargeRobotResult.Success();
+        return repoResult.Error switch
+        {
+            ChargeRobotRepositoryError.NotFound     => ChargeRobotResult.Failure(ChargeRobotError.NotFound),
+            ChargeRobotRepositoryError.NotAvailable => ChargeRobotResult.Failure(ChargeRobotError.NotAvailable),
+            _ => throw new InvalidOperationException("Unexpected charge robot repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch
