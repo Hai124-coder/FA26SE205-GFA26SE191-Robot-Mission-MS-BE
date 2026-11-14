@@ -72,4 +72,26 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
             _ => throw new InvalidOperationException("Auth service returned an invalid refresh result.")
         };
     }
+
+    [AllowAnonymous]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Logout(
+        [FromBody] RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.LogoutAsync(request, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            LogoutError.InvalidRequest => Problem(
+                type: "AUTH_INVALID_LOGOUT_REQUEST",
+                title: "The logout request is invalid.",
+                statusCode: StatusCodes.Status400BadRequest),
+            _ => throw new InvalidOperationException("Auth service returned an invalid logout result.")
+        };
+    }
 }
