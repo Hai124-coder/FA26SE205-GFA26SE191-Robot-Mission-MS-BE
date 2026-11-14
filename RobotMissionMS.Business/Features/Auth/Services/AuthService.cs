@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using RobotMissionMS.Business.Features.Auth.Authorization;
 using RobotMissionMS.Business.Features.Auth.DTOs;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.DataAccess.Entities;
@@ -200,5 +201,27 @@ public sealed class AuthService(
         await repository.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return LogoutResult.Success();
+    }
+
+    public async Task<CurrentUserResponse?> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+            return null;
+
+        // Role and status may have changed since the access token was issued.
+        var user = await repository.FindUserByIdAsync(userId, cancellationToken);
+        if (user is null || !user.IsActive || user.Role is null || string.IsNullOrWhiteSpace(user.Role.Name))
+            return null;
+
+        var access = AuthScreenPolicy.ForRole(user.Role.Name);
+        return new CurrentUserResponse
+        {
+            Id = user.Id,
+            Username = user.Username,
+            FullName = user.FullName,
+            Role = user.Role.Name,
+            Screens = access.Screens,
+            ReadOnlyScreens = access.ReadOnlyScreens
+        };
     }
 }
