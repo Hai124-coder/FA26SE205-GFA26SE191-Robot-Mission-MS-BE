@@ -7,6 +7,11 @@ public interface IFloorRepository
     Task<IReadOnlyList<FloorRow>> GetFloorsAsync(CancellationToken cancellationToken = default);
     Task<FloorRow?> FindFloorByCodeAsync(string floorCode, CancellationToken cancellationToken = default);
     Task<PublishedMapRow?> GetPublishedMapAsync(Guid zoneId, CancellationToken cancellationToken = default);
+    Task<bool> HasPublishedMapAsync(Guid zoneId, CancellationToken cancellationToken = default);
+    Task<FloorRow> CreateFloorAsync(string code, string name, string? description, Guid userId, DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default);
+    Task<FloorRow> UpdateFloorAsync(Guid zoneId, string name, string? description, string? backgroundImagePath,
+        Guid userId, DateTime occurredAtUtc, CancellationToken cancellationToken = default);
 }
 
 public sealed record FloorRow(Guid Id, string Code, string Name, string? Description, bool IsActive, ZoneMode OperationMode);

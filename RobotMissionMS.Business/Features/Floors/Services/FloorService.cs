@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using RobotMissionMS.Business.Features.Floors.DTOs;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -51,6 +52,44 @@ public sealed class FloorService(IFloorRepository repository) : IFloorService
                 IsBlocked = edge.IsBlocked
             }).ToList()
         });
+    }
+
+    public async Task<CreateFloorResult> CreateFloorAsync(Guid createdByUserId, CreateFloorRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (createdByUserId == Guid.Empty || !Validator.TryValidateObject(request, new ValidationContext(request), null, true)
+            || string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.Name))
+            return CreateFloorResult.Failure(CreateFloorError.InvalidRequest);
+
+        var code = request.Code.Trim();
+        if (await repository.FindFloorByCodeAsync(code, cancellationToken) is not null)
+            return CreateFloorResult.Failure(CreateFloorError.DuplicateCode);
+
+        var row = await repository.CreateFloorAsync(code, request.Name.Trim(), request.Description?.Trim(), createdByUserId,
+            DateTime.UtcNow, cancellationToken);
+        return CreateFloorResult.Success(ToFloorResponse(row));
+    }
+
+    public async Task<UpdateFloorResult> UpdateFloorAsync(Guid updatedByUserId, string floorCode, UpdateFloorRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (updatedByUserId == Guid.Empty || string.IsNullOrWhiteSpace(floorCode)
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, true)
+            || string.IsNullOrWhiteSpace(request.Name))
+            return UpdateFloorResult.Failure(UpdateFloorError.InvalidRequest);
+
+        var floor = await repository.FindFloorByCodeAsync(floorCode.Trim(), cancellationToken);
+        if (floor is null)
+            return UpdateFloorResult.Failure(UpdateFloorError.NotFound);
+        if (request.BackgroundImagePath is not null
+            && !await repository.HasPublishedMapAsync(floor.Id, cancellationToken))
+            return UpdateFloorResult.Failure(UpdateFloorError.MapNotPublished);
+
+        var row = await repository.UpdateFloorAsync(floor.Id, request.Name.Trim(), request.Description?.Trim(),
+            request.BackgroundImagePath?.Trim(), updatedByUserId, DateTime.UtcNow, cancellationToken);
+        return UpdateFloorResult.Success(ToFloorResponse(row));
     }
 
     private static FloorResponse ToFloorResponse(FloorRow row) => new()

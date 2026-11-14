@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.DataAccess.Enums;
+using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -36,4 +37,44 @@ public sealed class FloorRepository(RobotMissionDbContext db) : IFloorRepository
 
         return new PublishedMapRow(map.Id, map.VersionNo, map.BackgroundImagePath, map.WidthM, map.HeightM, nodes, edges);
     }
+
+    public Task<bool> HasPublishedMapAsync(Guid zoneId, CancellationToken cancellationToken = default) =>
+        db.MapVersions.AsNoTracking().AnyAsync(version => version.ZoneId == zoneId
+            && version.Status == MapVersionStatus.Published, cancellationToken);
+
+    public async Task<FloorRow> CreateFloorAsync(string code, string name, string? description, Guid userId, DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var zone = new Zone { Id = Guid.NewGuid(), Code = code, Name = name, Description = description, IsActive = true,
+            OperationMode = ZoneMode.Normal };
+        db.Zones.Add(zone);
+        AddAuditLog(userId, occurredAtUtc, "FLOOR_CREATED", $"Floor:{code}");
+        await db.SaveChangesAsync(cancellationToken);
+        return new FloorRow(zone.Id, zone.Code, zone.Name, zone.Description, zone.IsActive, zone.OperationMode);
+    }
+
+    public async Task<FloorRow> UpdateFloorAsync(Guid zoneId, string name, string? description, string? backgroundImagePath,
+        Guid userId, DateTime occurredAtUtc, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var zone = await db.Zones.SingleAsync(item => item.Id == zoneId, cancellationToken);
+        zone.Name = name;
+        zone.Description = description;
+        if (backgroundImagePath is not null)
+        {
+            var map = await db.MapVersions.SingleAsync(version => version.ZoneId == zoneId
+                && version.Status == MapVersionStatus.Published, cancellationToken);
+            map.BackgroundImagePath = backgroundImagePath;
+        }
+
+        AddAuditLog(userId, occurredAtUtc, "FLOOR_UPDATED", $"Floor:{zone.Code}");
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new FloorRow(zone.Id, zone.Code, zone.Name, zone.Description, zone.IsActive, zone.OperationMode);
+    }
+
+    private void AddAuditLog(Guid userId, DateTime occurredAtUtc, string action, string targetObject) => db.ActivityLogs.Add(new ActivityLog
+    {
+        UserId = userId, Timestamp = DateTime.SpecifyKind(occurredAtUtc, DateTimeKind.Utc), Action = action, TargetObject = targetObject
+    });
 }
