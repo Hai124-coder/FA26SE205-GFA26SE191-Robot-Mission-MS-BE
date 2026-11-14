@@ -131,4 +131,38 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
         await transaction.CommitAsync(cancellationToken);
         return UserUpdateDataResult.Success();
     }
+
+    public async Task<UserStatusUpdateDataResult> UpdateUserStatusAsync(
+        Guid userId,
+        bool isActive,
+        Guid updatedByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("The timestamp must be UTC.", nameof(occurredAtUtc));
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var updated = await db.Users.Where(user => user.Id == userId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.IsActive, isActive), cancellationToken);
+        if (updated == 0)
+            return UserStatusUpdateDataResult.Failure(UserStatusUpdateDataError.UserNotFound);
+
+        if (!isActive)
+        {
+            await db.RefreshTokens.Where(token => token.UserId == userId && token.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, occurredAtUtc), cancellationToken);
+        }
+
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = updatedByUserId,
+            Timestamp = occurredAtUtc,
+            Action = "USER_STATUS_CHANGED",
+            TargetObject = $"User:{userId:D};Active:{isActive}"
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return UserStatusUpdateDataResult.Success();
+    }
 }

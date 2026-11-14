@@ -9,6 +9,43 @@ namespace RobotMissionMS.Business.Features.Users.Services;
 
 public sealed class UserService(IUserRepository repository, IPasswordService passwords, TimeProvider clock) : IUserService
 {
+    public async Task<UpdateUserStatusResult> UpdateUserStatusAsync(Guid updatedByUserId, Guid userId,
+        UpdateUserStatusRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (updatedByUserId == Guid.Empty || userId == Guid.Empty
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
+            || request.Active is null)
+            return UpdateUserStatusResult.Failure(UpdateUserStatusError.InvalidRequest);
+
+        var user = await repository.FindUserByIdAsync(userId, cancellationToken);
+        if (user is null)
+            return UpdateUserStatusResult.Failure(UpdateUserStatusError.UserNotFound);
+
+        var updatedAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
+        var dataResult = await repository.UpdateUserStatusAsync(
+            userId, request.Active.Value, updatedByUserId, updatedAt.UtcDateTime, cancellationToken);
+        if (!dataResult.IsSuccess)
+        {
+            return dataResult.Error switch
+            {
+                UserStatusUpdateDataError.UserNotFound => UpdateUserStatusResult.Failure(UpdateUserStatusError.UserNotFound),
+                _ => throw new InvalidOperationException("User repository returned an invalid status result.")
+            };
+        }
+
+        return UpdateUserStatusResult.Success(new UserListItemResponse
+        {
+            Id = user.Id,
+            Username = user.Username,
+            FullName = user.FullName,
+            Email = user.Email,
+            Role = user.Role,
+            IsActive = request.Active.Value,
+            CreatedAt = new DateTimeOffset(user.CreatedAt)
+        });
+    }
+
     public async Task<UpdateUserResult> UpdateUserAsync(Guid updatedByUserId, Guid userId, UpdateUserRequest request,
         CancellationToken cancellationToken = default)
     {

@@ -10,4 +10,6 @@ public interface IUserService
         CancellationToken cancellationToken = default);
     Task<UpdateUserResult> UpdateUserAsync(Guid updatedByUserId, Guid userId, UpdateUserRequest request,
         CancellationToken cancellationToken = default);
+    Task<UpdateUserStatusResult> UpdateUserStatusAsync(Guid updatedByUserId, Guid userId,
+        UpdateUserStatusRequest request, CancellationToken cancellationToken = default);
 }

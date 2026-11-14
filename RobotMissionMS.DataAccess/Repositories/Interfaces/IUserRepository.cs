@@ -38,6 +38,17 @@ public interface IUserRepository
         Guid updatedByUserId,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes IsActive and writes an audit entry atomically. Deactivation also
+    /// revokes every currently active refresh-token session for that user.
+    /// </summary>
+    Task<UserStatusUpdateDataResult> UpdateUserStatusAsync(
+        Guid userId,
+        bool isActive,
+        Guid updatedByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record UserListPage(IReadOnlyList<UserListRow> Items, int Total);
@@ -96,4 +107,22 @@ public sealed class UserUpdateDataResult
     public static UserUpdateDataResult Success() => new(null);
 
     public static UserUpdateDataResult Failure(UserUpdateDataError error) => new(error);
+}
+
+public enum UserStatusUpdateDataError
+{
+    UserNotFound
+}
+
+public sealed class UserStatusUpdateDataResult
+{
+    private UserStatusUpdateDataResult(UserStatusUpdateDataError? error) => Error = error;
+
+    public UserStatusUpdateDataError? Error { get; }
+
+    public bool IsSuccess => Error is null;
+
+    public static UserStatusUpdateDataResult Success() => new(null);
+
+    public static UserStatusUpdateDataResult Failure(UserStatusUpdateDataError error) => new(error);
 }
