@@ -348,8 +348,8 @@ public partial class RobotMissionDbContext : DbContext
                 .HasForeignKey(d => d.PublishedByUserId)
                 .HasConstraintName("MapVersions_PublishedByUserId_fkey");
 
-            entity.HasOne(d => d.Zone).WithOne(p => p.MapVersion)
-                .HasForeignKey<MapVersion>(d => d.ZoneId)
+            entity.HasOne(d => d.Zone).WithMany(p => p.MapVersions)
+                .HasForeignKey(d => d.ZoneId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("MapVersions_ZoneId_fkey");
         });

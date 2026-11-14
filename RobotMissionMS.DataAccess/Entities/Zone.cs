@@ -22,7 +22,8 @@ public partial class Zone
 
     public virtual ICollection<Location> Locations { get; set; } = new List<Location>();
 
-    public virtual MapVersion? MapVersion { get; set; }
+    /// <summary>All imported map versions for this floor; at most one is PUBLISHED.</summary>
+    public virtual ICollection<MapVersion> MapVersions { get; set; } = new List<MapVersion>();
 
     public virtual ICollection<MissionSchedule> MissionSchedules { get; set; } = new List<MissionSchedule>();
 
