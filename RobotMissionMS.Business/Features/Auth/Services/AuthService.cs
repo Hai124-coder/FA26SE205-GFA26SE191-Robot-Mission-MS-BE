@@ -168,4 +168,37 @@ public sealed class AuthService(
             }
         });
     }
+
+    public async Task<LogoutResult> LogoutAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
+            || string.IsNullOrWhiteSpace(request.RefreshToken))
+            return LogoutResult.Failure(LogoutError.InvalidRequest);
+
+        var tokenHash = refreshTokens.ComputeHash(request.RefreshToken);
+        var snapshot = await repository.FindRefreshTokenByHashAsync(tokenHash, cancellationToken);
+        if (snapshot is null)
+            return LogoutResult.Success();
+
+        await using var transaction = await repository.BeginTransactionAsync(cancellationToken);
+        var user = await repository.LockUserAsync(snapshot.UserId, cancellationToken);
+        if (user is null)
+            return LogoutResult.Success();
+
+        // Reread after the user lock to observe a concurrent refresh or logout.
+        var current = await repository.FindRefreshTokenByHashAsync(tokenHash, cancellationToken);
+        if (current is null || current.UserId != user.Id || current.RevokedAt is not null)
+            return LogoutResult.Success();
+
+        var now = clock.GetUtcNow().ToUniversalTime().UtcDateTime;
+        if (await repository.RevokeFamilyAsync(user.Id, current.FamilyId, now, cancellationToken) == 0)
+            return LogoutResult.Success();
+
+        repository.AddLogoutActivity(user.Id, current.FamilyId, now);
+        await repository.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return LogoutResult.Success();
+    }
 }

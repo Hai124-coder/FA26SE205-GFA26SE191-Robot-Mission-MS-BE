@@ -90,6 +90,9 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
     public void AddRefreshActivity(Guid userId, Guid familyId, DateTime occurredAtUtc)
         => AddAuthActivity(userId, familyId, occurredAtUtc, "AUTH_REFRESH");
 
+    public void AddLogoutActivity(Guid userId, Guid familyId, DateTime occurredAtUtc)
+        => AddAuthActivity(userId, familyId, occurredAtUtc, "AUTH_LOGOUT");
+
     private void AddAuthActivity(Guid userId, Guid familyId, DateTime occurredAtUtc, string action)
     {
         RequireUserLock(userId);
