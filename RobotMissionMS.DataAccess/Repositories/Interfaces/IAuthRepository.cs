@@ -40,6 +40,12 @@ public interface IAuthRepository
     void AddLoginActivity(Guid userId, Guid familyId, DateTime occurredAtUtc);
 
     /// <summary>
+    /// Stages a successful refresh audit entry containing only user and session IDs.
+    /// Requires a user lock; call SaveChangesAsync explicitly before committing.
+    /// </summary>
+    void AddRefreshActivity(Guid userId, Guid familyId, DateTime occurredAtUtc);
+
+    /// <summary>
     /// Immediately updates an unrevoked token in the current transaction.
     /// The replacement must already be saved and belong to the same user/family.
     /// Returns 0 if no matching update is possible; the service decides what to do.

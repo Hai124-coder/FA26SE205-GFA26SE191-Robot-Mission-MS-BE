@@ -31,7 +31,9 @@ public sealed class RefreshTokenGenerator : IRefreshTokenGenerator
 
     public RefreshTokenResult Generate()
     {
-        var createdAt = clock.GetUtcNow().ToUniversalTime();
+        // PostgreSQL timestamptz preserves microseconds, not .NET's 100ns ticks.
+        // Normalize before responding and persisting so both values stay identical.
+        var createdAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
         var expiresAt = createdAt.AddDays(refreshTokenDays);
         var bytes = RandomNumberGenerator.GetBytes(TokenByteCount);
         try
@@ -58,5 +60,11 @@ public sealed class RefreshTokenGenerator : IRefreshTokenGenerator
         {
             CryptographicOperations.ZeroMemory(bytes);
         }
+    }
+
+    private static DateTimeOffset TruncateToMicroseconds(DateTimeOffset value)
+    {
+        var utc = value.UtcDateTime;
+        return new DateTimeOffset(new DateTime(utc.Ticks - utc.Ticks % 10, DateTimeKind.Utc));
     }
 }

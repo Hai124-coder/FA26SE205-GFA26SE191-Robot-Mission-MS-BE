@@ -85,6 +85,12 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
     }
 
     public void AddLoginActivity(Guid userId, Guid familyId, DateTime occurredAtUtc)
+        => AddAuthActivity(userId, familyId, occurredAtUtc, "AUTH_LOGIN");
+
+    public void AddRefreshActivity(Guid userId, Guid familyId, DateTime occurredAtUtc)
+        => AddAuthActivity(userId, familyId, occurredAtUtc, "AUTH_REFRESH");
+
+    private void AddAuthActivity(Guid userId, Guid familyId, DateTime occurredAtUtc, string action)
     {
         RequireUserLock(userId);
         RequireUtc(occurredAtUtc);
@@ -96,7 +102,7 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
         {
             UserId = userId,
             Timestamp = occurredAtUtc,
-            Action = "AUTH_LOGIN",
+            Action = action,
             TargetObject = $"AuthSession:{familyId:D}"
         });
     }
