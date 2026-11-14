@@ -15,6 +15,7 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
 builder.Services.AddControllers();
 builder.Services.AddAuthConfiguration(builder.Configuration);
 builder.Services.AddAuthServices();
+builder.Services.AddUserServices();
 builder.Services.AddJwtBearerAuthentication();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
