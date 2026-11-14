@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.Business.Features.Robots.DTOs;
 using RobotMissionMS.Business.Features.Robots.Services;
 
@@ -85,6 +86,54 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
                 title: "The requested robot was not found.",
                 statusCode: StatusCodes.Status404NotFound),
             _ => throw new InvalidOperationException("Robot service returned an invalid history result.")
+        };
+    }
+
+    /// <summary>
+    /// Creates a new robot (SC-05). Admin only.
+    /// Robot is created with State = INACTIVE and IsConnected = false.
+    /// </summary>
+    [HttpPost]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    [ProducesResponseType(typeof(CreateRobotResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CreateRobotResponse>> CreateRobot(
+        [FromBody] CreateRobotRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.CreateRobotAsync(request, cancellationToken);
+        if (result.IsSuccess)
+            return CreatedAtAction(
+                nameof(GetRobotById),
+                new { id = result.Response!.Id },
+                result.Response);
+
+        return result.Error switch
+        {
+            CreateRobotError.InvalidRequest      => Problem(
+                type: "ROBOTS_INVALID_REQUEST",
+                title: "The create robot request is invalid.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.RobotTypeNotFound   => Problem(
+                type: "ROBOTS_TYPE_NOT_FOUND",
+                title: "The specified robot type was not found.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.ZoneNotFound        => Problem(
+                type: "ROBOTS_ZONE_NOT_FOUND",
+                title: "The specified zone/floor was not found or is inactive.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.HomeStationNotFound => Problem(
+                type: "ROBOTS_STATION_NOT_FOUND",
+                title: "The specified home charging station was not found.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.DuplicateCode       => Problem(
+                type: "ROBOTS_DUPLICATE_CODE",
+                title: "A robot with this code already exists.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid create result.")
         };
     }
 }
