@@ -65,6 +65,14 @@ public interface IRobotRepository
     Task<DeleteRobotRepositoryResult> DeleteRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Suspends a robot: sets State = MAINTENANCE so it finishes current trip
+    /// then stops accepting new ones. (SUSPENDED not in current DB schema.)
+    /// </summary>
+    Task<SuspendRobotRepositoryResult> SuspendRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
@@ -216,3 +224,14 @@ public sealed record RobotHistoryChargingSessionRow(
     DateTime StartedAt,
     DateTime? EndedAt
 );
+
+public enum SuspendRobotRepositoryError { NotFound, AlreadySuspended }
+
+public sealed class SuspendRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public SuspendRobotRepositoryError? Error { get; private init; }
+    public static SuspendRobotRepositoryResult Success() => new() { IsSuccess = true };
+    public static SuspendRobotRepositoryResult Failure(SuspendRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
+}

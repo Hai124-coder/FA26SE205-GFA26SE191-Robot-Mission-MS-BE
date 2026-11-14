@@ -203,4 +203,37 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid delete result.")
         };
     }
+
+    /// <summary>
+    /// Suspends a robot: it finishes its current trip then stops accepting new ones (SC-14).
+    /// Operator or Admin. State is mapped to MAINTENANCE (SUSPENDED not in current DB schema).
+    /// </summary>
+    [HttpPost("{id:guid}/suspend")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SuspendRobot(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.SuspendRobotAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            SuspendRobotError.NotFound         => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            SuspendRobotError.AlreadySuspended => Problem(
+                type: "ROBOTS_ALREADY_SUSPENDED",
+                title: "The robot is already suspended or decommissioned.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid suspend result.")
+        };
+    }
 }

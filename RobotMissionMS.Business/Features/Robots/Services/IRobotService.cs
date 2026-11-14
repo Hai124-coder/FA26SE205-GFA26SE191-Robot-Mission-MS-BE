@@ -50,4 +50,11 @@ public interface IRobotService
     Task<DeleteRobotResult> DeleteRobotAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Suspends a robot so it finishes its current trip then stops accepting new ones.
+    /// </summary>
+    Task<SuspendRobotResult> SuspendRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }
