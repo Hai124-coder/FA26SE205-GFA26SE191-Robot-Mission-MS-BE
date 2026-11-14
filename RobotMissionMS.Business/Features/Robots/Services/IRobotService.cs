@@ -64,4 +64,11 @@ public interface IRobotService
     Task<ResumeRobotResult> ResumeRobotAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends an idle (AVAILABLE) robot to its charging station.
+    /// </summary>
+    Task<ChargeRobotResult> ChargeRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }

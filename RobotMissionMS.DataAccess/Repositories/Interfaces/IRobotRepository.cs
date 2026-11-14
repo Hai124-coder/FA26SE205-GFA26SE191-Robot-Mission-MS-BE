@@ -81,6 +81,14 @@ public interface IRobotRepository
     Task<ResumeRobotRepositoryResult> ResumeRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends an idle robot to charge: sets State = CHARGING.
+    /// Only valid when State = AVAILABLE.
+    /// </summary>
+    Task<ChargeRobotRepositoryResult> ChargeRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 }
 
 public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
@@ -252,5 +260,16 @@ public sealed class ResumeRobotRepositoryResult
     public ResumeRobotRepositoryError? Error { get; private init; }
     public static ResumeRobotRepositoryResult Success() => new() { IsSuccess = true };
     public static ResumeRobotRepositoryResult Failure(ResumeRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
+}
+
+public enum ChargeRobotRepositoryError { NotFound, NotAvailable }
+
+public sealed class ChargeRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public ChargeRobotRepositoryError? Error { get; private init; }
+    public static ChargeRobotRepositoryResult Success() => new() { IsSuccess = true };
+    public static ChargeRobotRepositoryResult Failure(ChargeRobotRepositoryError e) =>
         new() { IsSuccess = false, Error = e };
 }

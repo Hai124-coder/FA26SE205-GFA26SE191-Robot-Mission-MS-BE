@@ -353,6 +353,29 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         return SuspendRobotRepositoryResult.Success();
     }
 
+    public async Task<ChargeRobotRepositoryResult> ChargeRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var robot = await db.Robots.AsNoTracking()
+            .Where(r => r.Id == robotId)
+            .Select(r => new { r.Id, r.State })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (robot is null)
+            return ChargeRobotRepositoryResult.Failure(ChargeRobotRepositoryError.NotFound);
+
+        if (robot.State != RobotState.Available)
+            return ChargeRobotRepositoryResult.Failure(ChargeRobotRepositoryError.NotAvailable);
+
+        await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, RobotState.Charging),
+                cancellationToken);
+
+        return ChargeRobotRepositoryResult.Success();
+    }
+
     public async Task<ResumeRobotRepositoryResult> ResumeRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default)
