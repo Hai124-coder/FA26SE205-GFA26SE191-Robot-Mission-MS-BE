@@ -353,6 +353,36 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         return SuspendRobotRepositoryResult.Success();
     }
 
+    public async Task<MaintenanceRobotRepositoryResult> MaintenanceRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var robot = await db.Robots.AsNoTracking()
+            .Where(r => r.Id == robotId)
+            .Select(r => new { r.Id, r.State })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (robot is null)
+            return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.NotFound);
+
+        if (robot.State == RobotState.Maintenance)
+            return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.AlreadyInMaintenance);
+
+        var activeTripStatuses = new[] { TripStatus.Dispatched, TripStatus.InProgress };
+        var onActiveTrip = await db.Trips.AsNoTracking()
+            .AnyAsync(t => t.RobotId == robotId && activeTripStatuses.Contains(t.Status),
+                cancellationToken);
+        if (onActiveTrip)
+            return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.OnActiveTrip);
+
+        await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, RobotState.Maintenance),
+                cancellationToken);
+
+        return MaintenanceRobotRepositoryResult.Success();
+    }
+
     public async Task<ChargeRobotRepositoryResult> ChargeRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default)
