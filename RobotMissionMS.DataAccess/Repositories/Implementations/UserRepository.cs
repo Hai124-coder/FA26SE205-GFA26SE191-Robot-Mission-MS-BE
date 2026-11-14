@@ -165,4 +165,37 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
         await transaction.CommitAsync(cancellationToken);
         return UserStatusUpdateDataResult.Success();
     }
+
+    public async Task<UserPasswordResetDataResult> ResetUserPasswordAsync(
+        Guid userId,
+        string passwordHash,
+        Guid resetByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        if (passwordHash.Length > 255)
+            throw new ArgumentException("Password hash exceeds the database column limit.", nameof(passwordHash));
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("The timestamp must be UTC.", nameof(occurredAtUtc));
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var updated = await db.Users.Where(user => user.Id == userId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.PasswordHash, passwordHash), cancellationToken);
+        if (updated == 0)
+            return UserPasswordResetDataResult.Failure(UserPasswordResetDataError.UserNotFound);
+
+        await db.RefreshTokens.Where(token => token.UserId == userId && token.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, occurredAtUtc), cancellationToken);
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = resetByUserId,
+            Timestamp = occurredAtUtc,
+            Action = "USER_PASSWORD_RESET",
+            TargetObject = $"User:{userId:D}"
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return UserPasswordResetDataResult.Success();
+    }
 }

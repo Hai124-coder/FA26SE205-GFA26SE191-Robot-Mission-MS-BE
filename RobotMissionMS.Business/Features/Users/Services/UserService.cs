@@ -9,6 +9,39 @@ namespace RobotMissionMS.Business.Features.Users.Services;
 
 public sealed class UserService(IUserRepository repository, IPasswordService passwords, TimeProvider clock) : IUserService
 {
+    public async Task<ResetUserPasswordResult> ResetUserPasswordAsync(Guid resetByUserId, Guid userId,
+        ResetUserPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (resetByUserId == Guid.Empty || userId == Guid.Empty
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
+            || string.IsNullOrWhiteSpace(request.TemporaryPassword))
+            return ResetUserPasswordResult.Failure(ResetUserPasswordError.InvalidRequest);
+
+        var user = await repository.FindUserByIdAsync(userId, cancellationToken);
+        if (user is null)
+            return ResetUserPasswordResult.Failure(ResetUserPasswordError.UserNotFound);
+
+        var resetAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
+        var userForHash = new User { Id = user.Id, Username = user.Username };
+        var dataResult = await repository.ResetUserPasswordAsync(
+            userId,
+            passwords.HashPassword(userForHash, request.TemporaryPassword),
+            resetByUserId,
+            resetAt.UtcDateTime,
+            cancellationToken);
+        if (!dataResult.IsSuccess)
+        {
+            return dataResult.Error switch
+            {
+                UserPasswordResetDataError.UserNotFound => ResetUserPasswordResult.Failure(ResetUserPasswordError.UserNotFound),
+                _ => throw new InvalidOperationException("User repository returned an invalid password-reset result.")
+            };
+        }
+
+        return ResetUserPasswordResult.Success();
+    }
+
     public async Task<UpdateUserStatusResult> UpdateUserStatusAsync(Guid updatedByUserId, Guid userId,
         UpdateUserStatusRequest request, CancellationToken cancellationToken = default)
     {

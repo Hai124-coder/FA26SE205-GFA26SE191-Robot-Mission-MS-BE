@@ -14,6 +14,37 @@ namespace RobotMissionMS.Api.Controllers;
 [Authorize(Policy = AuthPolicies.AdminOnly)]
 public sealed class UsersController(IUserService userService) : ControllerBase
 {
+    [HttpPost("{id:guid}/reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ResetUserPassword(
+        Guid id,
+        [FromBody] ResetUserPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        if (!Guid.TryParse(subject, out var resetByUserId))
+            return Unauthorized();
+
+        var result = await userService.ResetUserPasswordAsync(resetByUserId, id, request, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            ResetUserPasswordError.InvalidRequest => Problem(
+                type: "USERS_INVALID_PASSWORD_RESET_REQUEST",
+                title: "The password reset request is invalid.",
+                statusCode: StatusCodes.Status400BadRequest),
+            ResetUserPasswordError.UserNotFound => Problem(
+                type: "USERS_NOT_FOUND",
+                title: "The requested user was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            _ => throw new InvalidOperationException("User service returned an invalid password-reset result.")
+        };
+    }
+
     [HttpPatch("{id:guid}/status")]
     [ProducesResponseType(typeof(UserListItemResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]

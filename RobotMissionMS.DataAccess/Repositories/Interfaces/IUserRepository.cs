@@ -49,6 +49,17 @@ public interface IUserRepository
         Guid updatedByUserId,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an already-hashed password, revokes active refresh-token sessions
+    /// and writes an audit entry atomically.
+    /// </summary>
+    Task<UserPasswordResetDataResult> ResetUserPasswordAsync(
+        Guid userId,
+        string passwordHash,
+        Guid resetByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record UserListPage(IReadOnlyList<UserListRow> Items, int Total);
@@ -125,4 +136,22 @@ public sealed class UserStatusUpdateDataResult
     public static UserStatusUpdateDataResult Success() => new(null);
 
     public static UserStatusUpdateDataResult Failure(UserStatusUpdateDataError error) => new(error);
+}
+
+public enum UserPasswordResetDataError
+{
+    UserNotFound
+}
+
+public sealed class UserPasswordResetDataResult
+{
+    private UserPasswordResetDataResult(UserPasswordResetDataError? error) => Error = error;
+
+    public UserPasswordResetDataError? Error { get; }
+
+    public bool IsSuccess => Error is null;
+
+    public static UserPasswordResetDataResult Success() => new(null);
+
+    public static UserPasswordResetDataResult Failure(UserPasswordResetDataError error) => new(error);
 }
