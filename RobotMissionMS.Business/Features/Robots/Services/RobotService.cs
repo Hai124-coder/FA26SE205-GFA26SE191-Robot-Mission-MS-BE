@@ -293,6 +293,22 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         });
     }
 
+    public async Task<DeleteRobotResult> DeleteRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.DeleteRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess)
+            return DeleteRobotResult.Success();
+
+        return repoResult.Error switch
+        {
+            DeleteRobotRepositoryError.NotFound     => DeleteRobotResult.Failure(DeleteRobotError.NotFound),
+            DeleteRobotRepositoryError.OnActiveTrip => DeleteRobotResult.Failure(DeleteRobotError.RobotOnActiveTrip),
+            _ => throw new InvalidOperationException("Unexpected delete robot repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch

@@ -43,4 +43,11 @@ public interface IRobotService
         Guid              robotId,
         UpdateRobotRequest request,
         CancellationToken  cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a robot (sets State = INACTIVE). Refused if robot is on an active trip.
+    /// </summary>
+    Task<DeleteRobotResult> DeleteRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }

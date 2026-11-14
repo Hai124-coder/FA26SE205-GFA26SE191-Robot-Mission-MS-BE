@@ -328,6 +328,30 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         _                      => state.ToString().ToUpperInvariant()
     };
 
+    public async Task<DeleteRobotRepositoryResult> DeleteRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await db.Robots.AsNoTracking()
+            .AnyAsync(r => r.Id == robotId, cancellationToken);
+        if (!exists)
+            return DeleteRobotRepositoryResult.Failure(DeleteRobotRepositoryError.NotFound);
+
+        var activeTripStatuses = new[] { TripStatus.Dispatched, TripStatus.InProgress };
+        var onActiveTrip = await db.Trips.AsNoTracking()
+            .AnyAsync(t => t.RobotId == robotId && activeTripStatuses.Contains(t.Status),
+                cancellationToken);
+        if (onActiveTrip)
+            return DeleteRobotRepositoryResult.Failure(DeleteRobotRepositoryError.OnActiveTrip);
+
+        await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, RobotState.Inactive),
+                cancellationToken);
+
+        return DeleteRobotRepositoryResult.Success();
+    }
+
     public async Task<CreateRobotRepositoryResult> CreateRobotAsync(
         string  robotCode,
         Guid    robotTypeId,

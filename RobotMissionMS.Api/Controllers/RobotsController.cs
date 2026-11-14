@@ -170,4 +170,37 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid update result.")
         };
     }
+
+    /// <summary>
+    /// Soft-deletes a robot by setting State = INACTIVE (SC-05). Admin only.
+    /// Refused with 409 if the robot is currently on an active trip.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteRobot(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.DeleteRobotAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            DeleteRobotError.NotFound        => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            DeleteRobotError.RobotOnActiveTrip => Problem(
+                type: "ROBOTS_ON_ACTIVE_TRIP",
+                title: "Cannot decommission a robot that is currently on an active trip.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid delete result.")
+        };
+    }
 }
