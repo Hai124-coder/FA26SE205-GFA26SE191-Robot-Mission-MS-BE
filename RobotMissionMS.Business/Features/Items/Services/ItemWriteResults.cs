@@ -2,8 +2,8 @@ using RobotMissionMS.Business.Features.Items.DTOs;
 
 namespace RobotMissionMS.Business.Features.Items.Services;
 
-public enum CreateItemError { InvalidRequest, DuplicateCode, MissionTypeNotFound }
-public enum UpdateItemError { InvalidRequest, NotFound, MissionTypeNotFound, MissionTypeChangeNotAllowed }
+public enum CreateItemError { InvalidRequest, DuplicateCode, MissionTypeNotFound, MissionTypeInactive, RobotLoadNotConfigured, CapacityExceeded }
+public enum UpdateItemError { InvalidRequest, NotFound, MissionTypeNotFound, MissionTypeInactive, RobotLoadNotConfigured, CapacityExceeded, MissionTypeChangeNotAllowed }
 public enum UpdateItemStatusError { InvalidRequest, NotFound }
 
 public sealed class CreateItemResult

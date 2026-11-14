@@ -36,6 +36,9 @@ public sealed class ItemsController(IItemCatalogService itemCatalogService) : Co
             CreateItemError.InvalidRequest => Problem(type: "ITEMS_INVALID_REQUEST", title: "The item request is invalid.", statusCode: 400),
             CreateItemError.DuplicateCode => Problem(type: "ITEMS_DUPLICATE_CODE", title: "The item code already exists.", statusCode: 409),
             CreateItemError.MissionTypeNotFound => Problem(type: "MISSION_TYPES_NOT_FOUND", title: "The mission type was not found.", statusCode: 400),
+            CreateItemError.MissionTypeInactive => Problem(type: "MISSION_TYPES_INACTIVE", title: "The mission type is inactive.", statusCode: 409),
+            CreateItemError.RobotLoadNotConfigured => Problem(type: "ROBOT_TYPES_LOAD_NOT_CONFIGURED", title: "The mission type robot load has not been configured.", statusCode: 409),
+            CreateItemError.CapacityExceeded => Problem(type: "ITEMS_CAPACITY_INVALID", title: "The item capacity data is invalid or exceeds the robot slot load.", statusCode: 400),
             _ => throw new InvalidOperationException("Item service returned an invalid create result.")
         };
     }
@@ -53,6 +56,9 @@ public sealed class ItemsController(IItemCatalogService itemCatalogService) : Co
             UpdateItemError.InvalidRequest => Problem(type: "ITEMS_INVALID_REQUEST", title: "The item request is invalid.", statusCode: 400),
             UpdateItemError.NotFound => Problem(type: "ITEMS_NOT_FOUND", title: "The item was not found.", statusCode: 404),
             UpdateItemError.MissionTypeNotFound => Problem(type: "MISSION_TYPES_NOT_FOUND", title: "The mission type was not found.", statusCode: 400),
+            UpdateItemError.MissionTypeInactive => Problem(type: "MISSION_TYPES_INACTIVE", title: "The mission type is inactive.", statusCode: 409),
+            UpdateItemError.RobotLoadNotConfigured => Problem(type: "ROBOT_TYPES_LOAD_NOT_CONFIGURED", title: "The mission type robot load has not been configured.", statusCode: 409),
+            UpdateItemError.CapacityExceeded => Problem(type: "ITEMS_CAPACITY_INVALID", title: "The item capacity data is invalid or exceeds the robot slot load.", statusCode: 400),
             UpdateItemError.MissionTypeChangeNotAllowed => Problem(type: "ITEMS_MISSION_TYPE_CHANGE_NOT_ALLOWED", title: "The mission type cannot change after the item has been used.", statusCode: 409),
             _ => throw new InvalidOperationException("Item service returned an invalid update result.")
         };

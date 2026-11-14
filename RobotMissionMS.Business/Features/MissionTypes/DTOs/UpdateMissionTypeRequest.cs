@@ -8,4 +8,5 @@ public sealed class UpdateMissionTypeRequest
     [Range(0, 86400)] public int WaitTimeoutSeconds { get; init; }
     [Range(0, 100000)] public int BasePriority { get; init; }
     [StringLength(50)] public string? PickupKind { get; init; }
+    public IReadOnlyList<UpdateMissionTypePickupLocationRequest>? PickupLocations { get; init; }
 }

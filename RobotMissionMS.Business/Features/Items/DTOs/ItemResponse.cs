@@ -10,5 +10,10 @@ public sealed class ItemResponse
     public required string Unit { get; init; }
     public required int MaxQtyPerSlot { get; init; }
     public string? Description { get; init; }
+    public string? Packaging { get; init; }
+    public decimal? KgPerUnit { get; init; }
+    public string? CapacityLimitReason { get; init; }
+    public decimal? MaxLoadPerSlotKg { get; init; }
+    public required bool MissionTypeIsActive { get; init; }
     public required bool IsActive { get; init; }
 }

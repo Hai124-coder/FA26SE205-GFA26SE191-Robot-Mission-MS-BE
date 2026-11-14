@@ -4,8 +4,7 @@ namespace RobotMissionMS.Business.Features.Robots.DTOs;
 
 /// <summary>
 /// Request body for PUT /robot-types/{type}.
-/// Only fields that exist in the current DB schema are included.
-/// Payload/dimension columns are not yet in the schema and are therefore omitted.
+/// Editable fields reflect the current DB schema.
 /// </summary>
 public sealed class UpdateRobotTypeRequest
 {
@@ -29,4 +28,10 @@ public sealed class UpdateRobotTypeRequest
     /// <summary>Optional free-text description.</summary>
     [StringLength(500)]
     public string? Description { get; init; }
+
+    [Range(typeof(decimal), "0.001", "99999.999")]
+    public decimal? MaxLoadPerSlotKg { get; init; }
+
+    [Range(typeof(decimal), "0.001", "999999.999")]
+    public decimal? MaxPayloadKg { get; init; }
 }

@@ -20,9 +20,33 @@ public sealed class MissionTypeService(IMissionTypeRepository repository) : IMis
             return UpdateMissionTypeResult.Failure(UpdateMissionTypeError.InvalidRequest);
         var missionType = await repository.FindByCodeAsync(code.Trim(), cancellationToken);
         if (missionType is null) return UpdateMissionTypeResult.Failure(UpdateMissionTypeError.NotFound);
+        IReadOnlyList<MissionTypePickupLocationTarget>? pickupLocations = null;
+        if (request.PickupLocations is not null)
+        {
+            if (request.PickupLocations.Any(value => !Validator.TryValidateObject(value, new ValidationContext(value), null, true))
+                || request.PickupLocations.Select(value => $"{value.Floor.Trim().ToUpperInvariant()}:{value.LocationCode.Trim().ToUpperInvariant()}").Distinct().Count() != request.PickupLocations.Count)
+                return UpdateMissionTypeResult.Failure(UpdateMissionTypeError.InvalidRequest);
+            pickupLocations = await repository.ResolvePickupLocationsAsync(request.PickupLocations.Select(value =>
+                new MissionTypePickupLocationLookup(value.Floor.Trim(), value.LocationCode.Trim())).ToList(), cancellationToken);
+            if (pickupLocations is null) return UpdateMissionTypeResult.Failure(UpdateMissionTypeError.PickupLocationNotFound);
+        }
         var row = await repository.UpdateAsync(missionType.Id, request.DepartDelaySeconds, request.WaitTimeoutSeconds,
-            request.BasePriority, pickupKind, userId, DateTime.UtcNow, cancellationToken);
+            request.BasePriority, pickupKind, pickupLocations, userId, DateTime.UtcNow, cancellationToken);
         return UpdateMissionTypeResult.Success(ToResponse(row));
+    }
+
+    public async Task<UpdateMissionTypeStatusResult> UpdateStatusAsync(Guid userId, string code,
+        UpdateMissionTypeStatusRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (userId == Guid.Empty || string.IsNullOrWhiteSpace(code) || request.Active is null)
+            return UpdateMissionTypeStatusResult.Failure(UpdateMissionTypeStatusError.InvalidRequest);
+        var type = await repository.FindByCodeAsync(code.Trim(), cancellationToken);
+        if (type is null) return UpdateMissionTypeStatusResult.Failure(UpdateMissionTypeStatusError.NotFound);
+        if (!request.Active.Value && await repository.HasActiveWorkAsync(type.Id, cancellationToken))
+            return UpdateMissionTypeStatusResult.Failure(UpdateMissionTypeStatusError.ActiveWorkExists);
+        return UpdateMissionTypeStatusResult.Success(ToResponse(await repository.UpdateStatusAsync(type.Id, request.Active.Value,
+            userId, DateTime.UtcNow, cancellationToken)));
     }
 
     private static MissionTypeResponse ToResponse(MissionTypeCatalogRow row) => new()
@@ -30,7 +54,10 @@ public sealed class MissionTypeService(IMissionTypeRepository repository) : IMis
             Id = row.Id, Code = row.Code, Name = row.Name, RobotType = row.RobotTypeCode, RobotTypeName = row.RobotTypeName,
             Mode = ToName(row.Mode), PickupKind = row.PickupKind is null ? null : ToName(row.PickupKind.Value),
             UsesSlotSensor = row.UsesSlotSensor, DepartDelaySeconds = row.DepartDelaySec,
-            WaitTimeoutSeconds = row.WaitTimeoutSec, BasePriority = row.BasePriority
+            WaitTimeoutSeconds = row.WaitTimeoutSec, BasePriority = row.BasePriority, IsActive = row.IsActive,
+            MaxLoadPerSlotKg = row.MaxLoadPerSlotKg,
+            PickupLocations = row.PickupLocations.Select(value => new MissionTypePickupLocationResponse
+            { Floor = value.FloorCode, LocationCode = value.LocationCode, LocationName = value.LocationName }).ToList()
         };
 
     private static bool TryParsePickupKind(string? value, out LocationKind? kind)

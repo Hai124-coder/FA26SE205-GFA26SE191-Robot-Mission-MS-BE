@@ -7,4 +7,6 @@ public interface IMissionTypeService
     Task<IReadOnlyList<MissionTypeResponse>> GetMissionTypesAsync(CancellationToken cancellationToken = default);
     Task<UpdateMissionTypeResult> UpdateAsync(Guid userId, string code, UpdateMissionTypeRequest request,
         CancellationToken cancellationToken = default);
+    Task<UpdateMissionTypeStatusResult> UpdateStatusAsync(Guid userId, string code, UpdateMissionTypeStatusRequest request,
+        CancellationToken cancellationToken = default);
 }

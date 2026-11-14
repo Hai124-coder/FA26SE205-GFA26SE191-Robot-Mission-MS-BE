@@ -17,7 +17,9 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
                 r.Name,
                 r.Slots,
                 r.ColorHex,
-                r.Description))
+                r.Description,
+                r.MaxLoadPerSlotKg,
+                r.MaxPayloadKg))
             .ToList();
     }
 
@@ -44,6 +46,8 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
             request.Slots,
             request.ColorHex.Trim(),
             request.Description?.Trim(),
+            request.MaxLoadPerSlotKg,
+            request.MaxPayloadKg,
             cancellationToken);
 
         return UpdateRobotTypeResult.Success(new RobotTypeResponse(
@@ -52,6 +56,8 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
             request.Name.Trim(),
             request.Slots,
             request.ColorHex.Trim(),
-            request.Description?.Trim()));
+            request.Description?.Trim(),
+            request.MaxLoadPerSlotKg,
+            request.MaxPayloadKg));
     }
 }

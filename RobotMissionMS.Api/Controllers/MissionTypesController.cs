@@ -30,7 +30,25 @@ public sealed class MissionTypesController(IMissionTypeService missionTypeServic
         {
             UpdateMissionTypeError.InvalidRequest => Problem(type: "MISSION_TYPES_INVALID_REQUEST", title: "The mission type request is invalid.", statusCode: 400),
             UpdateMissionTypeError.NotFound => Problem(type: "MISSION_TYPES_NOT_FOUND", title: "The mission type was not found.", statusCode: 404),
+            UpdateMissionTypeError.PickupLocationNotFound => Problem(type: "MISSION_TYPES_PICKUP_LOCATION_NOT_FOUND", title: "A pickup location is missing, inactive, or does not belong to its floor.", statusCode: 400),
             _ => throw new InvalidOperationException("Mission type service returned an invalid update result.")
+        };
+    }
+
+    [HttpPatch("{type}/status")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<ActionResult<MissionTypeResponse>> UpdateStatus(string type,
+        [FromBody] UpdateMissionTypeStatusRequest request, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId)) return Unauthorized();
+        var result = await missionTypeService.UpdateStatusAsync(userId, type, request, cancellationToken);
+        if (result.IsSuccess) return Ok(result.Response);
+        return result.Error switch
+        {
+            UpdateMissionTypeStatusError.InvalidRequest => Problem(type: "MISSION_TYPES_INVALID_STATUS_REQUEST", title: "The mission type status request is invalid.", statusCode: 400),
+            UpdateMissionTypeStatusError.NotFound => Problem(type: "MISSION_TYPES_NOT_FOUND", title: "The mission type was not found.", statusCode: 404),
+            UpdateMissionTypeStatusError.ActiveWorkExists => Problem(type: "MISSION_TYPES_ACTIVE_WORK_EXISTS", title: "The mission type has active missions or schedules.", statusCode: 409),
+            _ => throw new InvalidOperationException("Mission type service returned an invalid status result.")
         };
     }
 }

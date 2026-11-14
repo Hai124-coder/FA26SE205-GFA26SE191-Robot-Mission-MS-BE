@@ -23,8 +23,13 @@ public sealed class ItemCatalogService(IItemCatalogRepository repository, IMissi
         if (await repository.FindByCodeAsync(code, cancellationToken) is not null) return CreateItemResult.Failure(CreateItemError.DuplicateCode);
         var missionType = await missionTypeRepository.FindByCodeAsync(request.MissionType.Trim(), cancellationToken);
         if (missionType is null) return CreateItemResult.Failure(CreateItemError.MissionTypeNotFound);
+        var capacityCheck = ValidateCapacity(missionType, request.MaxQtyPerSlot, request.KgPerUnit,
+            request.CapacityLimitReason);
+        if (capacityCheck is not null) return CreateItemResult.Failure(capacityCheck.Value);
         var row = await repository.CreateAsync(code, request.Name.Trim(), request.Unit.Trim(), missionType.Id, missionType.Code,
-            missionType.Name, request.MaxQtyPerSlot, request.Description?.Trim(), userId, DateTime.UtcNow, cancellationToken);
+            missionType.Name, request.MaxQtyPerSlot, request.Packaging?.Trim(), request.KgPerUnit,
+            request.CapacityLimitReason.Trim().ToUpperInvariant(), missionType.MaxLoadPerSlotKg, request.Description?.Trim(),
+            userId, DateTime.UtcNow, cancellationToken);
         return CreateItemResult.Success(ToResponse(row));
     }
 
@@ -37,10 +42,20 @@ public sealed class ItemCatalogService(IItemCatalogRepository repository, IMissi
         if (item is null) return UpdateItemResult.Failure(UpdateItemError.NotFound);
         var missionType = await missionTypeRepository.FindByCodeAsync(request.MissionType.Trim(), cancellationToken);
         if (missionType is null) return UpdateItemResult.Failure(UpdateItemError.MissionTypeNotFound);
+        var capacityCheck = ValidateCapacity(missionType, request.MaxQtyPerSlot, request.KgPerUnit,
+            request.CapacityLimitReason);
+        if (capacityCheck is not null) return UpdateItemResult.Failure(capacityCheck.Value switch
+        {
+            CreateItemError.MissionTypeInactive => UpdateItemError.MissionTypeInactive,
+            CreateItemError.RobotLoadNotConfigured => UpdateItemError.RobotLoadNotConfigured,
+            _ => UpdateItemError.CapacityExceeded
+        });
         if (item.MissionTypeId != missionType.Id && await repository.HasMissionsAsync(item.Id, cancellationToken))
             return UpdateItemResult.Failure(UpdateItemError.MissionTypeChangeNotAllowed);
         var row = await repository.UpdateAsync(item.Id, request.Name.Trim(), request.Unit.Trim(), missionType.Id, missionType.Code,
-            missionType.Name, request.MaxQtyPerSlot, request.Description?.Trim(), userId, DateTime.UtcNow, cancellationToken);
+            missionType.Name, request.MaxQtyPerSlot, request.Packaging?.Trim(), request.KgPerUnit,
+            request.CapacityLimitReason.Trim().ToUpperInvariant(), missionType.MaxLoadPerSlotKg, request.Description?.Trim(),
+            userId, DateTime.UtcNow, cancellationToken);
         return UpdateItemResult.Success(ToResponse(row));
     }
 
@@ -57,9 +72,20 @@ public sealed class ItemCatalogService(IItemCatalogRepository repository, IMissi
     }
 
     private static bool IsValid(object request) => Validator.TryValidateObject(request, new ValidationContext(request), null, true);
+    private static CreateItemError? ValidateCapacity(MissionTypeCatalogRow missionType, int maxQtyPerSlot,
+        decimal? kgPerUnit, string capacityLimitReason)
+    {
+        if (!missionType.IsActive) return CreateItemError.MissionTypeInactive;
+        if (missionType.MaxLoadPerSlotKg is null) return CreateItemError.RobotLoadNotConfigured;
+        if (kgPerUnit is null || !IsCapacityReason(capacityLimitReason)) return CreateItemError.CapacityExceeded;
+        return maxQtyPerSlot * kgPerUnit.Value <= missionType.MaxLoadPerSlotKg.Value ? null : CreateItemError.CapacityExceeded;
+    }
+    private static bool IsCapacityReason(string value) => value.Trim().ToUpperInvariant() is "WEIGHT" or "VOLUME" or "POLICY";
     private static ItemResponse ToResponse(ItemCatalogRow row) => new()
     {
         Id = row.Id, Code = row.Code, Name = row.Name, MissionType = row.MissionTypeCode, MissionTypeName = row.MissionTypeName,
-        Unit = row.Unit, MaxQtyPerSlot = row.MaxQtyPerSlot, Description = row.Description, IsActive = row.IsActive
+        Unit = row.Unit, MaxQtyPerSlot = row.MaxQtyPerSlot, Description = row.Description, Packaging = row.Packaging,
+        KgPerUnit = row.KgPerUnit, CapacityLimitReason = row.CapacityLimitReason, MaxLoadPerSlotKg = row.MaxLoadPerSlotKg,
+        MissionTypeIsActive = row.MissionTypeIsActive, IsActive = row.IsActive
     };
 }

@@ -17,7 +17,9 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 rt.Name,
                 rt.Slots,
                 rt.ColorHex,
-                rt.Description))
+                rt.Description,
+                rt.MaxLoadPerSlotKg,
+                rt.MaxPayloadKg))
             .ToListAsync(cancellationToken);
     }
 
@@ -31,7 +33,9 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 rt.Name,
                 rt.Slots,
                 rt.ColorHex,
-                rt.Description))
+                rt.Description,
+                rt.MaxLoadPerSlotKg,
+                rt.MaxPayloadKg))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<bool> UpdateAsync(
@@ -40,6 +44,8 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
         int slots,
         string colorHex,
         string? description,
+        decimal? maxLoadPerSlotKg,
+        decimal? maxPayloadKg,
         CancellationToken cancellationToken = default)
     {
         var updated = await db.RobotTypes
@@ -48,7 +54,9 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 .SetProperty(rt => rt.Name, name)
                 .SetProperty(rt => rt.Slots, slots)
                 .SetProperty(rt => rt.ColorHex, colorHex)
-                .SetProperty(rt => rt.Description, description),
+                .SetProperty(rt => rt.Description, description)
+                .SetProperty(rt => rt.MaxLoadPerSlotKg, maxLoadPerSlotKg)
+                .SetProperty(rt => rt.MaxPayloadKg, maxPayloadKg),
                 cancellationToken);
 
         return updated > 0;

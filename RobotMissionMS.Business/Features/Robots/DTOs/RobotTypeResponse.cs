@@ -10,5 +10,7 @@ public sealed record RobotTypeResponse(
     string Name,
     int    Slots,
     string ColorHex,
-    string? Description
+    string? Description,
+    decimal? MaxLoadPerSlotKg,
+    decimal? MaxPayloadKg
 );

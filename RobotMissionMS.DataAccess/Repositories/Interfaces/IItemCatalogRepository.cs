@@ -7,10 +7,12 @@ public interface IItemCatalogRepository
     Task<ItemCatalogRow?> FindByCodeAsync(string code, CancellationToken cancellationToken = default);
     Task<bool> HasMissionsAsync(Guid itemId, CancellationToken cancellationToken = default);
     Task<ItemCatalogRow> CreateAsync(string code, string name, string unit, Guid missionTypeId, string missionTypeCode,
-        string missionTypeName, int maxQtyPerSlot, string? description, Guid userId, DateTime occurredAtUtc,
+        string missionTypeName, int maxQtyPerSlot, string? packaging, decimal? kgPerUnit, string capacityLimitReason,
+        decimal? maxLoadPerSlotKg, string? description, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
     Task<ItemCatalogRow> UpdateAsync(Guid itemId, string name, string unit, Guid missionTypeId, string missionTypeCode,
-        string missionTypeName, int maxQtyPerSlot, string? description, Guid userId, DateTime occurredAtUtc,
+        string missionTypeName, int maxQtyPerSlot, string? packaging, decimal? kgPerUnit, string capacityLimitReason,
+        decimal? maxLoadPerSlotKg, string? description, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
     Task<ItemCatalogRow> UpdateStatusAsync(Guid itemId, bool isActive, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);

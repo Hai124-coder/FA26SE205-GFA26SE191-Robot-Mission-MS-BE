@@ -13,4 +13,7 @@ public sealed class MissionTypeResponse
     public required int DepartDelaySeconds { get; init; }
     public required int WaitTimeoutSeconds { get; init; }
     public required int BasePriority { get; init; }
+    public required bool IsActive { get; init; }
+    public decimal? MaxLoadPerSlotKg { get; init; }
+    public required IReadOnlyList<MissionTypePickupLocationResponse> PickupLocations { get; init; }
 }
