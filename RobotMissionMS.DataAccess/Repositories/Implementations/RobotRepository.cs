@@ -328,6 +328,31 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         _                      => state.ToString().ToUpperInvariant()
     };
 
+    public async Task<SuspendRobotRepositoryResult> SuspendRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var robot = await db.Robots.AsNoTracking()
+            .Where(r => r.Id == robotId)
+            .Select(r => new { r.Id, r.State })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (robot is null)
+            return SuspendRobotRepositoryResult.Failure(SuspendRobotRepositoryError.NotFound);
+
+        // Already suspended (MAINTENANCE) or decommissioned (INACTIVE)
+        if (robot.State == RobotState.Maintenance || robot.State == RobotState.Inactive)
+            return SuspendRobotRepositoryResult.Failure(SuspendRobotRepositoryError.AlreadySuspended);
+
+        // Set MAINTENANCE — robot finishes current trip then accepts no new ones
+        await db.Robots
+            .Where(r => r.Id == robotId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, RobotState.Maintenance),
+                cancellationToken);
+
+        return SuspendRobotRepositoryResult.Success();
+    }
+
     public async Task<DeleteRobotRepositoryResult> DeleteRobotAsync(
         Guid robotId,
         CancellationToken cancellationToken = default)

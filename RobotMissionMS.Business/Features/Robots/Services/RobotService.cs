@@ -309,6 +309,22 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         };
     }
 
+    public async Task<SuspendRobotResult> SuspendRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.SuspendRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess)
+            return SuspendRobotResult.Success();
+
+        return repoResult.Error switch
+        {
+            SuspendRobotRepositoryError.NotFound        => SuspendRobotResult.Failure(SuspendRobotError.NotFound),
+            SuspendRobotRepositoryError.AlreadySuspended => SuspendRobotResult.Failure(SuspendRobotError.AlreadySuspended),
+            _ => throw new InvalidOperationException("Unexpected suspend robot repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch
