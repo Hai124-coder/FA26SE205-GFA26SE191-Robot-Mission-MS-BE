@@ -206,6 +206,58 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         _                        => status.ToString().ToUpperInvariant()
     };
 
+    public async Task<CreateRobotResult> CreateRobotAsync(
+        CreateRobotRequest request,
+        CancellationToken  cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true))
+            return CreateRobotResult.Failure(CreateRobotError.InvalidRequest);
+
+        var typeId = await repository.FindRobotTypeIdByCodeAsync(request.RobotTypeCode.Trim(), cancellationToken);
+        if (typeId is null)
+            return CreateRobotResult.Failure(CreateRobotError.RobotTypeNotFound);
+
+        var zoneId = await repository.FindZoneIdByCodeAsync(request.ZoneCode.Trim(), cancellationToken);
+        if (zoneId is null)
+            return CreateRobotResult.Failure(CreateRobotError.ZoneNotFound);
+
+        if (request.HomeChargingStationId.HasValue)
+        {
+            var stationExists = await repository.ChargingStationExistsAsync(
+                request.HomeChargingStationId.Value, cancellationToken);
+            if (!stationExists)
+                return CreateRobotResult.Failure(CreateRobotError.HomeStationNotFound);
+        }
+
+        var repoResult = await repository.CreateRobotAsync(
+            request.RobotCode.Trim(),
+            typeId.Value,
+            zoneId.Value,
+            request.HomeChargingStationId,
+            cancellationToken);
+
+        if (!repoResult.IsSuccess)
+            return CreateRobotResult.Failure(CreateRobotError.DuplicateCode);
+
+        var row = repoResult.Row!;
+        return CreateRobotResult.Success(new CreateRobotResponse
+        {
+            Id              = row.Id,
+            RobotCode       = row.RobotCode,
+            Type            = row.TypeCode,
+            TypeName        = row.TypeName,
+            Floor           = row.FloorCode,
+            FloorName       = row.FloorName,
+            State           = row.State,
+            IsConnected     = row.IsConnected,
+            Battery         = row.Battery,
+            HomeStationCode = row.HomeStationCode,
+            CreatedAt       = row.CreatedAt,
+        });
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch

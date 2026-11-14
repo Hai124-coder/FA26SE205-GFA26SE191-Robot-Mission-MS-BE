@@ -28,4 +28,11 @@ public interface IRobotService
         Guid                robotId,
         RobotHistoryQuery   query,
         CancellationToken   cancellationToken = default);
+
+    /// <summary>
+    /// Creates a new robot with State = INACTIVE and IsConnected = false.
+    /// </summary>
+    Task<CreateRobotResult> CreateRobotAsync(
+        CreateRobotRequest request,
+        CancellationToken  cancellationToken = default);
 }

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
@@ -255,5 +256,80 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             await tripsTask,
             await alertsTask,
             await chargingTask);
+    }
+
+    public Task<Guid?> FindRobotTypeIdByCodeAsync(string typeCode, CancellationToken cancellationToken = default) =>
+        db.RobotTypes.AsNoTracking()
+            .Where(rt => rt.TypeCode == typeCode)
+            .Select(rt => (Guid?)rt.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<Guid?> FindZoneIdByCodeAsync(string zoneCode, CancellationToken cancellationToken = default) =>
+        db.Zones.AsNoTracking()
+            .Where(z => z.Code == zoneCode && z.IsActive)
+            .Select(z => (Guid?)z.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default) =>
+        db.ChargingStations.AsNoTracking()
+            .AnyAsync(cs => cs.Id == stationId, cancellationToken);
+
+    public async Task<CreateRobotRepositoryResult> CreateRobotAsync(
+        string  robotCode,
+        Guid    robotTypeId,
+        Guid    zoneId,
+        Guid?   homeChargingStationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Duplicate code check
+        var duplicate = await db.Robots.AsNoTracking()
+            .AnyAsync(r => r.RobotCode == robotCode, cancellationToken);
+        if (duplicate)
+            return CreateRobotRepositoryResult.Failure(CreateRobotRepositoryError.DuplicateCode);
+
+        var robot = new Robot
+        {
+            Id                   = Guid.NewGuid(),
+            RobotCode            = robotCode,
+            RobotTypeId          = robotTypeId,
+            ZoneId               = zoneId,
+            HomeChargingStationId = homeChargingStationId,
+            State                = RobotState.Inactive,
+            IsConnected          = false,
+            Battery              = 100,
+            CreatedAt            = DateTime.UtcNow,
+        };
+
+        db.Robots.Add(robot);
+        await db.SaveChangesAsync(cancellationToken);
+
+        // Reload joined data for response
+        var row = await (
+            from r       in db.Robots.AsNoTracking()
+            join zone    in db.Zones.AsNoTracking()      on r.ZoneId      equals zone.Id
+            join robType in db.RobotTypes.AsNoTracking() on r.RobotTypeId equals robType.Id
+            where r.Id == robot.Id
+            select new { r, zone, robType })
+            .SingleAsync(cancellationToken);
+
+        string? homeStationCode = homeChargingStationId.HasValue
+            ? await db.ChargingStations.AsNoTracking()
+                .Where(cs => cs.Id == homeChargingStationId.Value)
+                .Select(cs => (string?)cs.Location.Code)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+
+        return CreateRobotRepositoryResult.Success(new CreateRobotRow(
+            row.r.Id,
+            row.r.RobotCode,
+            row.robType.TypeCode,
+            row.robType.Name,
+            row.zone.Code,
+            row.zone.Name,
+            "INACTIVE",
+            false,
+            100,
+            homeStationCode,
+            row.r.CreatedAt));
     }
 }

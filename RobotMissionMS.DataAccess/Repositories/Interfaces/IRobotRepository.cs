@@ -30,7 +30,57 @@ public interface IRobotRepository
         DateTime fromUtc,
         DateTime toUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a new robot. Returns the created row or an error code.
+    /// </summary>
+    Task<CreateRobotRepositoryResult> CreateRobotAsync(
+        string  robotCode,
+        Guid    robotTypeId,
+        Guid    zoneId,
+        Guid?   homeChargingStationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Looks up a RobotType id by TypeCode. Returns null if not found.</summary>
+    Task<Guid?> FindRobotTypeIdByCodeAsync(string typeCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Looks up a Zone id by Code. Returns null if not found.</summary>
+    Task<Guid?> FindZoneIdByCodeAsync(string zoneCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns true when a ChargingStation with the given id exists.</summary>
+    Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default);
 }
+
+public enum CreateRobotRepositoryError
+{
+    DuplicateCode,
+}
+
+public sealed class CreateRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public CreateRobotRow? Row { get; private init; }
+    public CreateRobotRepositoryError? Error { get; private init; }
+
+    public static CreateRobotRepositoryResult Success(CreateRobotRow row) =>
+        new() { IsSuccess = true, Row = row };
+    public static CreateRobotRepositoryResult Failure(CreateRobotRepositoryError error) =>
+        new() { IsSuccess = false, Error = error };
+}
+
+public sealed record CreateRobotRow(
+    Guid      Id,
+    string    RobotCode,
+    string    TypeCode,
+    string    TypeName,
+    string    FloorCode,
+    string    FloorName,
+    string    State,
+    bool      IsConnected,
+    int       Battery,
+    string?   HomeStationCode,
+    DateTime  CreatedAt
+);
 
 public sealed record RobotListRow(
     Guid      Id,
