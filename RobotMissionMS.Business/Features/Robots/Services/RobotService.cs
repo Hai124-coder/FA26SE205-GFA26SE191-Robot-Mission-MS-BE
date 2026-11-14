@@ -258,6 +258,57 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         });
     }
 
+    public async Task<UpdateRobotResult> UpdateRobotAsync(
+        Guid               robotId,
+        UpdateRobotRequest request,
+        CancellationToken  cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.HomeChargingStationId.HasValue)
+        {
+            var stationExists = await repository.ChargingStationExistsAsync(
+                request.HomeChargingStationId.Value, cancellationToken);
+            if (!stationExists)
+                return UpdateRobotResult.Failure(UpdateRobotError.HomeStationNotFound);
+        }
+
+        var row = await repository.UpdateRobotAsync(robotId, request.HomeChargingStationId, cancellationToken);
+        if (row is null)
+            return UpdateRobotResult.Failure(UpdateRobotError.NotFound);
+
+        return UpdateRobotResult.Success(new CreateRobotResponse
+        {
+            Id              = row.Id,
+            RobotCode       = row.RobotCode,
+            Type            = row.TypeCode,
+            TypeName        = row.TypeName,
+            Floor           = row.FloorCode,
+            FloorName       = row.FloorName,
+            State           = row.State,
+            IsConnected     = row.IsConnected,
+            Battery         = row.Battery,
+            HomeStationCode = row.HomeStationCode,
+            CreatedAt       = row.CreatedAt,
+        });
+    }
+
+    public async Task<DeleteRobotResult> DeleteRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var repoResult = await repository.DeleteRobotAsync(robotId, cancellationToken);
+        if (repoResult.IsSuccess)
+            return DeleteRobotResult.Success();
+
+        return repoResult.Error switch
+        {
+            DeleteRobotRepositoryError.NotFound     => DeleteRobotResult.Failure(DeleteRobotError.NotFound),
+            DeleteRobotRepositoryError.OnActiveTrip => DeleteRobotResult.Failure(DeleteRobotError.RobotOnActiveTrip),
+            _ => throw new InvalidOperationException("Unexpected delete robot repository error.")
+        };
+    }
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch

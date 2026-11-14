@@ -49,6 +49,34 @@ public interface IRobotRepository
 
     /// <summary>Returns true when a ChargingStation with the given id exists.</summary>
     Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates HomeChargingStationId of a robot. Returns the updated row or null if not found.
+    /// </summary>
+    Task<CreateRobotRow?> UpdateRobotAsync(
+        Guid  robotId,
+        Guid? homeChargingStationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a robot by setting State = INACTIVE.
+    /// Returns false when robot not found, throws when robot has an active trip.
+    /// </summary>
+    Task<DeleteRobotRepositoryResult> DeleteRobotAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
+}
+
+public enum DeleteRobotRepositoryError { NotFound, OnActiveTrip }
+
+public sealed class DeleteRobotRepositoryResult
+{
+    public bool IsSuccess { get; private init; }
+    public DeleteRobotRepositoryError? Error { get; private init; }
+
+    public static DeleteRobotRepositoryResult Success() => new() { IsSuccess = true };
+    public static DeleteRobotRepositoryResult Failure(DeleteRobotRepositoryError e) =>
+        new() { IsSuccess = false, Error = e };
 }
 
 public enum CreateRobotRepositoryError
