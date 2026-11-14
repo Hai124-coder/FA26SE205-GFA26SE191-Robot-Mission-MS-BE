@@ -78,4 +78,11 @@ public interface IRobotService
     Task<MaintenanceRobotResult> MaintenanceRobotAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a robot from maintenance back to service (State = AVAILABLE).
+    /// </summary>
+    Task<BackToServiceRobotResult> BackToServiceAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }
