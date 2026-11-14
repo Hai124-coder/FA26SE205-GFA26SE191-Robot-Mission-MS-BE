@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RobotMissionMS.Business.Features.Auth.DTOs;
@@ -93,5 +95,19 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest),
             _ => throw new InvalidOperationException("Auth service returned an invalid logout result.")
         };
+    }
+
+    [Authorize]
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<CurrentUserResponse>> Me(CancellationToken cancellationToken)
+    {
+        var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        if (!Guid.TryParse(subject, out var userId))
+            return Unauthorized();
+
+        var user = await authService.GetCurrentUserAsync(userId, cancellationToken);
+        return user is null ? Unauthorized() : Ok(user);
     }
 }
