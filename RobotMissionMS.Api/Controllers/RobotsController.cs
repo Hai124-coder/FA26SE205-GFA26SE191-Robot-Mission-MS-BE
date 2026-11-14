@@ -236,4 +236,37 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
             _ => throw new InvalidOperationException("Robot service returned an invalid suspend result.")
         };
     }
+
+    /// <summary>
+    /// Resumes a suspended robot so it can accept new trips again (SC-14).
+    /// Operator or Admin.
+    /// </summary>
+    [HttpPost("{id:guid}/resume")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResumeRobot(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await robotService.ResumeRobotAsync(id, cancellationToken);
+        if (result.IsSuccess)
+            return NoContent();
+
+        return result.Error switch
+        {
+            ResumeRobotError.NotFound     => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            ResumeRobotError.NotSuspended => Problem(
+                type: "ROBOTS_NOT_SUSPENDED",
+                title: "The robot is not currently suspended.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot service returned an invalid resume result.")
+        };
+    }
 }

@@ -57,4 +57,11 @@ public interface IRobotService
     Task<SuspendRobotResult> SuspendRobotAsync(
         Guid              robotId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resumes a suspended robot so it can accept new trips again.
+    /// </summary>
+    Task<ResumeRobotResult> ResumeRobotAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }
