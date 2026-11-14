@@ -11,4 +11,5 @@ public interface IMissionTypeRepository
 }
 
 public sealed record MissionTypeCatalogRow(Guid Id, string Code, string Name, string RobotTypeCode, string RobotTypeName,
-    MissionMode Mode, LocationKind? PickupKind, bool UsesSlotSensor, int DepartDelaySec, int WaitTimeoutSec, int BasePriority);
+    MissionMode Mode, LocationKind? PickupKind, bool UsesSlotSensor, int DepartDelaySec, int WaitTimeoutSec, int BasePriority,
+    bool IsActive, decimal? MaxLoadPerSlotKg);

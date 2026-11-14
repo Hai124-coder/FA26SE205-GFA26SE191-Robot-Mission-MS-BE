@@ -17,4 +17,5 @@ public interface IItemCatalogRepository
 }
 
 public sealed record ItemCatalogRow(Guid Id, string Code, string Name, string Unit, int MaxQtyPerSlot, bool IsActive,
-    string? Description, Guid MissionTypeId, string MissionTypeCode, string MissionTypeName);
+    string? Description, string? Packaging, decimal? KgPerUnit, string? CapacityLimitReason, Guid MissionTypeId,
+    string MissionTypeCode, string MissionTypeName, bool MissionTypeIsActive, decimal? MaxLoadPerSlotKg);
