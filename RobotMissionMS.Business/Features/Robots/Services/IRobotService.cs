@@ -12,4 +12,11 @@ public interface IRobotService
     Task<RobotListResult> GetRobotsAsync(
         RobotListQuery    query,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns full detail for one robot, or NotFound.
+    /// </summary>
+    Task<RobotDetailResult> GetRobotDetailAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default);
 }

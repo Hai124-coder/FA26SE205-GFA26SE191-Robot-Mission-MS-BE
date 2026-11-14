@@ -16,7 +16,6 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         if (!Validator.TryValidateObject(query, new ValidationContext(query), null, validateAllProperties: true))
             return RobotListResult.Failure(RobotListError.InvalidQuery);
 
-        // Parse optional State filter string → enum
         RobotState? stateFilter = null;
         if (!string.IsNullOrWhiteSpace(query.State))
         {
@@ -54,7 +53,92 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         return RobotListResult.Success(response);
     }
 
-    // Keep string values aligned with the PgName / API doc enum labels.
+    public async Task<RobotDetailResult> GetRobotDetailAsync(
+        Guid              robotId,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await repository.GetRobotByIdAsync(robotId, cancellationToken);
+        if (row is null)
+            return RobotDetailResult.Failure(RobotDetailError.NotFound);
+
+        // Build slot list: enumerate 1..Slots, overlay occupied missions by SlotNo
+        var slotMap = row.MissionSlots.ToDictionary(m => m.SlotNo);
+        var slots = Enumerable.Range(1, row.Slots)
+            .Select(slotNo => slotMap.TryGetValue(slotNo, out var m)
+                ? new RobotSlotInfo
+                {
+                    SlotNo         = slotNo,
+                    IsOccupied     = true,
+                    MissionCode    = m.MissionCode,
+                    ItemCode       = m.ItemCode,
+                    ItemName       = m.ItemName,
+                    Quantity       = m.Quantity,
+                    ToLocationCode = m.ToLocationCode,
+                    ToLocationName = m.ToLocationName,
+                    MissionStatus  = m.MissionStatus,
+                }
+                : new RobotSlotInfo { SlotNo = slotNo, IsOccupied = false })
+            .ToList();
+
+        RobotActiveTripInfo? activeTrip = null;
+        if (row.ActiveTrip is { } t)
+        {
+            activeTrip = new RobotActiveTripInfo
+            {
+                TripId    = t.TripId,
+                TripCode  = t.TripCode,
+                Status    = TripStatusToString(t.Status),
+                StartedAt = t.StartedAt,
+                Stops     = t.Stops
+                    .Select(s => new RobotTripStopInfo
+                    {
+                        Seq          = s.Seq,
+                        LocationCode = s.LocationCode,
+                        LocationName = s.LocationName,
+                        ArrivedAt    = s.ArrivedAt,
+                        DepartedAt   = s.DepartedAt,
+                    })
+                    .ToList(),
+            };
+        }
+
+        var openAlerts = row.OpenAlerts
+            .Select(a => new RobotAlertInfo
+            {
+                AlertId   = a.AlertId,
+                AlertType = a.AlertType,
+                Severity  = AlertSeverityToString(a.Severity),
+                Category  = AlertCategoryToString(a.Category),
+                Message   = a.Message,
+                CreatedAt = a.CreatedAt,
+            })
+            .ToList();
+
+        var detail = new RobotDetailResponse
+        {
+            Id              = row.Id,
+            RobotCode       = row.RobotCode,
+            Type            = row.TypeCode,
+            TypeName        = row.TypeName,
+            Floor           = row.FloorCode,
+            FloorName       = row.FloorName,
+            State           = RobotStateToString(row.State),
+            IsConnected     = row.IsConnected,
+            Battery         = row.Battery,
+            CurrentX        = row.CurrentX,
+            CurrentY        = row.CurrentY,
+            LastHeartbeatAt = row.LastHeartbeatAt,
+            HomeStation     = row.HomeStationCode,
+            Slots           = slots,
+            ActiveTrip      = activeTrip,
+            OpenAlerts      = openAlerts,
+        };
+
+        return RobotDetailResult.Success(detail);
+    }
+
+    // ── enum helpers ────────────────────────────────────────────────────────
+
     private static bool TryParseRobotState(string value, out RobotState result)
     {
         result = value.ToUpperInvariant() switch
@@ -79,5 +163,31 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         RobotState.Error       => "ERROR",
         RobotState.Maintenance => "MAINTENANCE",
         _                      => state.ToString().ToUpperInvariant()
+    };
+
+    private static string TripStatusToString(TripStatus status) => status switch
+    {
+        TripStatus.Planned    => "PLANNED",
+        TripStatus.Dispatched => "DISPATCHED",
+        TripStatus.InProgress => "IN_PROGRESS",
+        TripStatus.Completed  => "COMPLETED",
+        TripStatus.Aborted    => "ABORTED",
+        _                     => status.ToString().ToUpperInvariant()
+    };
+
+    private static string AlertSeverityToString(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Info     => "INFO",
+        AlertSeverity.Warning  => "WARNING",
+        AlertSeverity.Critical => "CRITICAL",
+        _                      => severity.ToString().ToUpperInvariant()
+    };
+
+    private static string AlertCategoryToString(AlertCategory category) => category switch
+    {
+        AlertCategory.Robot   => "ROBOT",
+        AlertCategory.Mission => "MISSION",
+        AlertCategory.System  => "SYSTEM",
+        _                     => category.ToString().ToUpperInvariant()
     };
 }
