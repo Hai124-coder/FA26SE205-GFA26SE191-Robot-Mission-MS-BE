@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -6,6 +8,15 @@ namespace RobotMissionMS.DataAccess.Repositories.Implementations;
 
 public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
 {
+    public Task<bool> UsernameExistsAsync(string username, CancellationToken cancellationToken = default) =>
+        db.Users.AsNoTracking().AnyAsync(user => user.Username == username, cancellationToken);
+
+    public Task<RoleRecord?> FindRoleByNameAsync(string roleName, CancellationToken cancellationToken = default) =>
+        db.Roles.AsNoTracking()
+            .Where(role => role.Name == roleName)
+            .Select(role => new RoleRecord(role.Id, role.Name))
+            .SingleOrDefaultAsync(cancellationToken);
+
     public async Task<UserListPage> GetUsersAsync(
         int skip,
         int take,
@@ -37,5 +48,49 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             .ToListAsync(cancellationToken);
 
         return new UserListPage(items, total);
+    }
+
+    public async Task<UserCreateDataResult> CreateUserAsync(
+        UserCreateRecord user,
+        Guid createdByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("The timestamp must be UTC.", nameof(occurredAtUtc));
+
+        db.Users.Add(new User
+        {
+            Id = user.Id,
+            Username = user.Username,
+            PasswordHash = user.PasswordHash,
+            FullName = user.FullName,
+            Email = user.Email,
+            IsActive = true,
+            RoleId = user.RoleId,
+            CreatedAt = user.CreatedAt
+        });
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = createdByUserId,
+            Timestamp = occurredAtUtc,
+            Action = "USER_CREATED",
+            TargetObject = $"User:{user.Id:D}"
+        });
+
+        try
+        {
+            // EF wraps this SaveChanges call in a transaction, so the user and
+            // audit entry either both persist or neither does.
+            await db.SaveChangesAsync(cancellationToken);
+            return UserCreateDataResult.Success();
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+            { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "Users_Username_key" })
+        {
+            db.ChangeTracker.Clear();
+            return UserCreateDataResult.Failure(UserCreateDataError.UsernameAlreadyExists);
+        }
     }
 }

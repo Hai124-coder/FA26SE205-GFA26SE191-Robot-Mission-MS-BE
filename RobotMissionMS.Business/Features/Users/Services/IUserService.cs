@@ -6,4 +6,6 @@ namespace RobotMissionMS.Business.Features.Users.Services;
 public interface IUserService
 {
     Task<UserListResult> GetUsersAsync(UserListQuery query, CancellationToken cancellationToken = default);
+    Task<CreateUserResult> CreateUserAsync(Guid createdByUserId, CreateUserRequest request,
+        CancellationToken cancellationToken = default);
 }

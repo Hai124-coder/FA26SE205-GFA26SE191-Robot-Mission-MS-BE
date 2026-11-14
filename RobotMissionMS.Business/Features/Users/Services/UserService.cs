@@ -1,12 +1,69 @@
 using System.ComponentModel.DataAnnotations;
 using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Users.DTOs;
+using RobotMissionMS.Business.Features.Auth.Security;
+using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
 namespace RobotMissionMS.Business.Features.Users.Services;
 
-public sealed class UserService(IUserRepository repository) : IUserService
+public sealed class UserService(IUserRepository repository, IPasswordService passwords, TimeProvider clock) : IUserService
 {
+    public async Task<CreateUserResult> CreateUserAsync(Guid createdByUserId, CreateUserRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (createdByUserId == Guid.Empty
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
+            || string.IsNullOrWhiteSpace(request.Username)
+            || string.IsNullOrWhiteSpace(request.FullName)
+            || string.IsNullOrWhiteSpace(request.Role)
+            || string.IsNullOrWhiteSpace(request.TemporaryPassword))
+            return CreateUserResult.Failure(CreateUserError.InvalidRequest);
+
+        if (await repository.UsernameExistsAsync(request.Username, cancellationToken))
+            return CreateUserResult.Failure(CreateUserError.UsernameAlreadyExists);
+
+        var role = await repository.FindRoleByNameAsync(request.Role, cancellationToken);
+        if (role is null)
+            return CreateUserResult.Failure(CreateUserError.RoleNotFound);
+
+        var createdAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
+        var id = Guid.NewGuid();
+        var userForHash = new User { Id = id, Username = request.Username };
+        var dataResult = await repository.CreateUserAsync(new UserCreateRecord(
+                id,
+                request.Username,
+                passwords.HashPassword(userForHash, request.TemporaryPassword),
+                request.FullName,
+                request.Email,
+                role.Id,
+                createdAt.UtcDateTime),
+            createdByUserId,
+            createdAt.UtcDateTime,
+            cancellationToken);
+
+        if (!dataResult.IsSuccess)
+        {
+            return dataResult.Error switch
+            {
+                UserCreateDataError.UsernameAlreadyExists => CreateUserResult.Failure(CreateUserError.UsernameAlreadyExists),
+                _ => throw new InvalidOperationException("User repository returned an invalid create result.")
+            };
+        }
+
+        return CreateUserResult.Success(new UserListItemResponse
+        {
+            Id = id,
+            Username = request.Username,
+            FullName = request.FullName,
+            Email = request.Email,
+            Role = role.Name,
+            IsActive = true,
+            CreatedAt = createdAt
+        });
+    }
+
     public async Task<UserListResult> GetUsersAsync(UserListQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -37,5 +94,11 @@ public sealed class UserService(IUserRepository repository) : IUserService
             PageSize = query.PageSize,
             Total = page.Total
         });
+    }
+
+    private static DateTimeOffset TruncateToMicroseconds(DateTimeOffset value)
+    {
+        var utc = value.UtcDateTime;
+        return new DateTimeOffset(new DateTime(utc.Ticks - utc.Ticks % 10, DateTimeKind.Utc));
     }
 }

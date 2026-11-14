@@ -12,6 +12,19 @@ public interface IUserRepository
         string? role,
         bool? isActive,
         CancellationToken cancellationToken = default);
+
+    Task<bool> UsernameExistsAsync(string username, CancellationToken cancellationToken = default);
+    Task<RoleRecord?> FindRoleByNameAsync(string roleName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the new account and its audit line atomically. The raw password is
+    /// never accepted or persisted by this repository.
+    /// </summary>
+    Task<UserCreateDataResult> CreateUserAsync(
+        UserCreateRecord user,
+        Guid createdByUserId,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record UserListPage(IReadOnlyList<UserListRow> Items, int Total);
@@ -24,3 +37,32 @@ public sealed record UserListRow(
     string Role,
     bool IsActive,
     DateTime CreatedAt);
+
+public sealed record RoleRecord(Guid Id, string Name);
+
+public sealed record UserCreateRecord(
+    Guid Id,
+    string Username,
+    string PasswordHash,
+    string FullName,
+    string? Email,
+    Guid RoleId,
+    DateTime CreatedAt);
+
+public enum UserCreateDataError
+{
+    UsernameAlreadyExists
+}
+
+public sealed class UserCreateDataResult
+{
+    private UserCreateDataResult(UserCreateDataError? error) => Error = error;
+
+    public UserCreateDataError? Error { get; }
+
+    public bool IsSuccess => Error is null;
+
+    public static UserCreateDataResult Success() => new(null);
+
+    public static UserCreateDataResult Failure(UserCreateDataError error) => new(error);
+}
