@@ -14,7 +14,7 @@ public interface IImportTemplateService
     Task<byte[]> CreateAsync(CancellationToken cancellationToken = default);
     Task<ImportBatchResponse> ImportAsync(Guid userId, string floor, IFormFile file, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default);
-    Task<bool> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
+    Task<ImportDeleteResult> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
     Task<ImportCommitResponse> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ImportListItemResponse>> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<HospitalFileResponse>> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
@@ -127,8 +127,24 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         return ImportResponseMapper.ToDetail(batch);
     }
 
-    public async Task<bool> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
-    { var batch = await db.Batches.Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id && x.Status == BatchStatus.Draft, cancellationToken); if (batch is null || batch.CreatedByUserId != userId || batch.BatchRows.Any(x => x.ZoneId != null && x.ZoneId != db.Zones.Where(z => z.Code == floor).Select(z => z.Id).FirstOrDefault())) return false; db.Batches.Remove(batch); await db.SaveChangesAsync(cancellationToken); return true; }
+    public async Task<ImportDeleteResult> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
+    {
+        var batch = await db.Batches.Include(x => x.Zone).Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (batch is null) return ImportDeleteResult.NotFound;
+        if (batch.Zone?.Code != floor || batch.CreatedByUserId != userId) return ImportDeleteResult.Forbidden;
+        if (batch.Status != BatchStatus.Draft) return ImportDeleteResult.AlreadyCommitted;
+
+        var hospitalFile = await db.HospitalFiles.SingleOrDefaultAsync(file => file.ImportedBatchId == batch.Id, cancellationToken);
+        if (hospitalFile is not null)
+        {
+            hospitalFile.ImportedBatchId = null;
+            hospitalFile.ImportedAt = null;
+            hospitalFile.ImportedByUserId = null;
+        }
+        db.Batches.Remove(batch);
+        await db.SaveChangesAsync(cancellationToken);
+        return ImportDeleteResult.Deleted;
+    }
 
     public async Task<ImportCommitResponse> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
     {
@@ -186,7 +202,23 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         }
     }
     public async Task<IReadOnlyList<ImportListItemResponse>> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
-    { var query = db.Batches.AsNoTracking().AsQueryable(); if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.Zone != null && x.Zone.Code == floor); if (from.HasValue) query = query.Where(x => x.CreatedAt >= from); if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1)); if (Enum.TryParse<BatchStatus>(status, true, out var parsed)) query = query.Where(x => x.Status == parsed); return await query.OrderByDescending(x => x.CreatedAt).Select(x => new ImportListItemResponse { ImportId = x.Id, BatchCode = x.BatchCode, FileName = x.FileName, Status = x.Status.ToString().ToUpperInvariant(), TotalRows = x.TotalRows, ValidRows = x.AcceptedRows, InvalidRows = x.RejectedRows, TasksToCreate = x.GeneratedMissions, CreatedAt = new DateTimeOffset(x.CreatedAt) }).ToListAsync(cancellationToken); }
+    {
+        if (from.HasValue && to.HasValue && from > to) throw new InvalidOperationException("IMPORT_DATE_RANGE_INVALID");
+        BatchStatus? parsed = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<BatchStatus>(status, true, out var parsedStatus) || !Enum.IsDefined(parsedStatus))
+                throw new InvalidOperationException("IMPORT_STATUS_INVALID");
+            parsed = parsedStatus;
+        }
+
+        var query = db.Batches.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.Zone != null && x.Zone.Code == floor);
+        if (from.HasValue) query = query.Where(x => x.CreatedAt >= from);
+        if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1));
+        if (parsed.HasValue) query = query.Where(x => x.Status == parsed.Value);
+        return await query.OrderByDescending(x => x.CreatedAt).Select(x => new ImportListItemResponse { ImportId = x.Id, BatchCode = x.BatchCode, FileName = x.FileName, Status = x.Status.ToString().ToUpperInvariant(), TotalRows = x.TotalRows, ValidRows = x.AcceptedRows, InvalidRows = x.RejectedRows, TasksToCreate = x.GeneratedMissions, CreatedAt = new DateTimeOffset(x.CreatedAt) }).ToListAsync(cancellationToken);
+    }
     public async Task<IReadOnlyList<HospitalFileResponse>> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
     { var query = db.HospitalFiles.AsNoTracking().AsQueryable(); if (imported.HasValue) query = query.Where(x => (x.ImportedBatchId != null) == imported.Value); if (from.HasValue) query = query.Where(x => x.ReceivedAt >= from); if (to.HasValue) query = query.Where(x => x.ReceivedAt < to.Value.AddDays(1)); return await query.OrderByDescending(x => x.ReceivedAt).Select(x => new HospitalFileResponse { Id = x.Id, FileName = x.FileName, ContentType = x.ContentType, SizeBytes = x.SizeBytes, SenderName = x.SenderName, ReceivedAt = new DateTimeOffset(x.ReceivedAt), Note = x.Note, IsImported = x.ImportedBatchId != null, ImportedAt = x.ImportedAt == null ? null : new DateTimeOffset(x.ImportedAt.Value), ImportedBy = x.ImportedByUser == null ? null : x.ImportedByUser.FullName, ImportedBatchId = x.ImportedBatchId, BatchCode = x.ImportedBatch == null ? null : x.ImportedBatch.BatchCode }).ToListAsync(cancellationToken); }
     public async Task<ImportBatchResponse> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)

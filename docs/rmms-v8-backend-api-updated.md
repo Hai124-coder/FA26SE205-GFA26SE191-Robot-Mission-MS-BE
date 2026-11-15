@@ -235,7 +235,7 @@ Màn SC-10 Tạo nhiệm vụ. Import đi theo 2 bước: tải lên để kiể
 | GET | /hospital-files | Operator | Hộp thư file bệnh viện gửi xuống (tên file, người gửi, giờ, đã import chưa) |
 | POST | /hospital-files/{fileId}/import | Operator | Import thẳng một file trong hộp thư; kết quả giống POST /imports |
 
-Khi preview import hợp lệ, backend lưu snapshot cách chia ngăn, sức chứa, khối lượng, điểm lấy và deadline chuẩn trong draft. Commit dùng đúng snapshot này và trả `409 IMPORT_STALE` nếu cấu hình liên quan đã đổi; Operator phải preview lại thay vì tạo nhiệm vụ khác với kết quả đã xem. Backend khóa dòng draft trong transaction khi commit, nên chỉ một request có thể commit một import; request còn lại nhận `409 IMPORT_ALREADY_COMMITTED`.
+Khi preview import hợp lệ, backend lưu snapshot cách chia ngăn, sức chứa, khối lượng, điểm lấy và deadline chuẩn trong draft. Commit dùng đúng snapshot này và trả `409 IMPORT_STALE` nếu cấu hình liên quan đã đổi; Operator phải preview lại thay vì tạo nhiệm vụ khác với kết quả đã xem. Backend khóa dòng draft trong transaction khi commit, nên chỉ một request có thể commit một import; request còn lại nhận `409 IMPORT_ALREADY_COMMITTED`. Mã yêu cầu trùng cũng trả `409 REQUEST_CODE_DUPLICATE`. `GET /imports` chỉ nhận `status=DRAFT|COMMITTED|DISCARDED`; trạng thái sai hoặc khoảng `from` lớn hơn `to` trả `400`. Xóa draft của Operator khác hoặc tầng khác trả `403 IMPORT_FORBIDDEN`, xóa lô đã commit trả `409 IMPORT_ALREADY_COMMITTED`, và xóa draft được tạo từ file bệnh viện sẽ bỏ liên kết file để có thể import lại.
 
 ### Contract tạo đơn lẻ
 
