@@ -40,4 +40,5 @@ public partial class Zone
     public virtual ICollection<Request> Requests { get; set; } = new List<Request>();
 
     public virtual ICollection<BatchRow> BatchRows { get; set; } = new List<BatchRow>();
+    public virtual ICollection<Batch> Batches { get; set; } = new List<Batch>();
 }

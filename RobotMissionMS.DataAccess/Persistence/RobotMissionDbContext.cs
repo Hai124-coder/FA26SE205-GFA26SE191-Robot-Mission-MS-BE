@@ -161,7 +161,8 @@ public partial class RobotMissionDbContext : DbContext
 
             entity.ToTable(tb => tb.HasComment("Import lot only (CSV/XLSX). Trips are in Trips."));
 
-            entity.HasIndex(e => e.BatchCode, "Batches_BatchCode_key").IsUnique();
+              entity.HasIndex(e => e.BatchCode, "Batches_BatchCode_key").IsUnique();
+              entity.HasIndex(e => new { e.ZoneId, e.CreatedAt }, "Batches_ZoneId_CreatedAt_idx");
 
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.AcceptedRows).HasDefaultValue(0);
@@ -176,9 +177,10 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.TemplateVersion).HasMaxLength(30);
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
-            entity.HasOne(d => d.CreatedByUser).WithMany(p => p.Batches)
+              entity.HasOne(d => d.CreatedByUser).WithMany(p => p.Batches)
                 .HasForeignKey(d => d.CreatedByUserId)
-                .HasConstraintName("Batches_CreatedByUserId_fkey");
+                  .HasConstraintName("Batches_CreatedByUserId_fkey");
+              entity.HasOne(d => d.Zone).WithMany(p => p.Batches).HasForeignKey(d => d.ZoneId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("Batches_ZoneId_fkey");
 
             entity.HasOne(d => d.CommittedByUser).WithMany(p => p.CommittedBatches)
                 .HasForeignKey(d => d.CommittedByUserId).HasConstraintName("Batches_CommittedByUserId_fkey");

@@ -69,7 +69,8 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         var items = await db.Items.Include(x => x.MissionType).ThenInclude(x => x.MissionTypePickupLocations).ThenInclude(x => x.Location)
             .Where(x => x.IsActive && x.MissionType.IsActive && x.MissionType.Mode == MissionMode.Batch).ToDictionaryAsync(x => x.Code, cancellationToken);
         var departments = await db.Locations.Include(x => x.Zone).Where(x => x.IsActive && x.Kind == LocationKind.Dept).ToDictionaryAsync(x => x.Code, cancellationToken);
-        var now = DateTime.UtcNow; var batch = new RobotMissionMS.DataAccess.Entities.Batch { Id = Guid.NewGuid(), BatchCode = $"IMP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FileName = Path.GetFileName(file.FileName), CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now, TemplateVersion = "RMMS-YC v3", Source = BatchSource.Import, Status = BatchStatus.Draft };
+        var zoneId = await db.Zones.Where(x => x.Code == floor && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("FLOORS_INACTIVE");
+        var now = DateTime.UtcNow; var batch = new RobotMissionMS.DataAccess.Entities.Batch { Id = Guid.NewGuid(), ZoneId = zoneId, BatchCode = $"IMP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FileName = Path.GetFileName(file.FileName), CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now, TemplateVersion = "RMMS-YC v3", Source = BatchSource.Import, Status = BatchStatus.Draft };
         var rows = new List<RobotMissionMS.DataAccess.Entities.BatchRow>();
         foreach (var inputRow in inputRows) { var rowNo = inputRow.RowNo; var departmentCode = inputRow.DepartmentCode; var itemCode = inputRow.ItemCode; var quantityText = inputRow.QuantityText; RobotMissionMS.DataAccess.Entities.Location? department = null; RobotMissionMS.DataAccess.Entities.Item? item = null;
             var valid = int.TryParse(quantityText, out var quantity) && quantity is >= 1 and <= 600 && departments.TryGetValue(departmentCode, out department) && department.Zone.Code == floor && items.TryGetValue(itemCode, out item) && item.KgPerUnit is > 0 && item.MaxQtyPerSlot > 0 && item.MissionType.MissionTypePickupLocations.Any(x => x.ZoneId == department.ZoneId && x.Location.IsActive);
@@ -80,8 +81,8 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
 
     public async Task<object?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default)
     {
-        var batch = await db.Batches.AsNoTracking().Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken); if (batch is null) return null;
-        if (floor is not null && batch.BatchRows.Any(x => x.ZoneId != null && x.ZoneId != db.Zones.Where(z => z.Code == floor).Select(z => z.Id).FirstOrDefault())) return null;
+        var batch = await db.Batches.AsNoTracking().Include(x => x.Zone).Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken); if (batch is null) return null;
+        if (floor is not null && batch.Zone?.Code != floor) return null;
         return new { importId = batch.Id, batch.BatchCode, batch.FileName, status = batch.Status.ToString().ToUpperInvariant(), batch.TemplateVersion, totalRows = batch.TotalRows, validRows = batch.AcceptedRows, invalidRows = batch.RejectedRows, tasksToCreate = batch.GeneratedMissions, rows = batch.BatchRows.OrderBy(x => x.RowNo).Select(x => new { x.RowNo, x.RequestCode, department = x.DepartmentCode, x.ItemCode, x.Quantity, valid = x.IsValid, x.ErrorCode, error = x.ErrorMessage, split = x.SplitQuantities }) };
     }
 

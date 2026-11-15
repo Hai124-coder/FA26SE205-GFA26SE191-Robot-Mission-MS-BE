@@ -8,6 +8,8 @@ namespace RobotMissionMS.DataAccess.Entities;
 /// </summary>
 public partial class Batch
 {
+    public Guid? ZoneId { get; set; }
+    public virtual Zone? Zone { get; set; }
     public Guid Id { get; set; }
 
     public string BatchCode { get; set; } = null!;
