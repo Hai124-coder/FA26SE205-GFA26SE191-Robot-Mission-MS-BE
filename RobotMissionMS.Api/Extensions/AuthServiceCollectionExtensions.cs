@@ -51,6 +51,8 @@ public static class AuthServiceCollectionExtensions
         {
             options.AddPolicy(AuthPolicies.AdminOnly, policy =>
                 policy.RequireAuthenticatedUser().RequireRole("ADMIN"));
+            options.AddPolicy(AuthPolicies.OperatorOnly, policy =>
+                policy.RequireAuthenticatedUser().RequireRole("OPERATOR"));
             options.AddPolicy(AuthPolicies.OperatorOrAdmin, policy =>
                 policy.RequireAuthenticatedUser().RequireRole("OPERATOR", "ADMIN"));
             options.AddPolicy(AuthPolicies.OperationsRead, policy =>
