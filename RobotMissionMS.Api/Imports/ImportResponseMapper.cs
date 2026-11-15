@@ -9,6 +9,7 @@ public static class ImportResponseMapper
         ImportId = batch.Id, BatchCode = batch.BatchCode, FileName = batch.FileName,
         Status = batch.Status.ToString().ToUpperInvariant(), TotalRows = batch.TotalRows,
         ValidRows = batch.AcceptedRows, InvalidRows = batch.RejectedRows, TasksToCreate = batch.GeneratedMissions,
+        Warnings = batch.TemplateVersion == ExcelImportParser.CurrentTemplateVersion ? [] : ["Mẫu Excel cũ; hãy tải mẫu RMMS-YC v3 mới trước lần import tiếp theo."],
         Rows = batch.BatchRows.OrderBy(row => row.RowNo).Select(ToRow).ToList()
     };
 
