@@ -1,0 +1,3 @@
+namespace RobotMissionMS.DataAccess.Entities;
+public partial class HospitalFile
+{ public Guid Id { get; set; } public string FileName { get; set; } = null!; public string ContentType { get; set; } = null!; public byte[] Content { get; set; } = null!; public int SizeBytes { get; set; } public string? SenderName { get; set; } public DateTime ReceivedAt { get; set; } public Guid? ImportedBatchId { get; set; } public DateTime? ImportedAt { get; set; } public Guid? ImportedByUserId { get; set; } public string? Note { get; set; } public virtual Batch? ImportedBatch { get; set; } public virtual User? ImportedByUser { get; set; } }

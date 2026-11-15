@@ -26,6 +26,7 @@ public partial class RobotMissionDbContext : DbContext
     public virtual DbSet<ChargingStation> ChargingStations { get; set; }
 
     public virtual DbSet<Item> Items { get; set; }
+    public virtual DbSet<HospitalFile> HospitalFiles { get; set; }
 
     public virtual DbSet<Location> Locations { get; set; }
 
@@ -207,6 +208,16 @@ public partial class RobotMissionDbContext : DbContext
             entity.HasOne(e => e.DepartmentLocation).WithMany().HasForeignKey(e => e.DepartmentLocationId).HasConstraintName("BatchRows_DepartmentLocationId_fkey");
             entity.HasOne(e => e.Item).WithMany().HasForeignKey(e => e.ItemId).HasConstraintName("BatchRows_ItemId_fkey");
             entity.HasOne(e => e.MissionType).WithMany().HasForeignKey(e => e.MissionTypeId).HasConstraintName("BatchRows_MissionTypeId_fkey");
+        });
+
+        modelBuilder.Entity<HospitalFile>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("HospitalFiles_pkey"); entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.FileName).HasMaxLength(255); entity.Property(e => e.ContentType).HasMaxLength(100);
+            entity.Property(e => e.SenderName).HasMaxLength(200); entity.Property(e => e.Note).HasMaxLength(1000);
+            entity.Property(e => e.ReceivedAt).HasDefaultValueSql("now()");
+            entity.HasOne(e => e.ImportedBatch).WithMany().HasForeignKey(e => e.ImportedBatchId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.ImportedByUser).WithMany().HasForeignKey(e => e.ImportedByUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ChargingSession>(entity =>
