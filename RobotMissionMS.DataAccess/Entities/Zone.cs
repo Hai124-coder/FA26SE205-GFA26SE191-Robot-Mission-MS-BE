@@ -34,4 +34,10 @@ public partial class Zone
     public virtual ICollection<Robot> Robots { get; set; } = new List<Robot>();
 
     public virtual ICollection<Trip> Trips { get; set; } = new List<Trip>();
+
+    public virtual ICollection<User> Users { get; set; } = new List<User>();
+
+    public virtual ICollection<Request> Requests { get; set; } = new List<Request>();
+
+    public virtual ICollection<BatchRow> BatchRows { get; set; } = new List<BatchRow>();
 }

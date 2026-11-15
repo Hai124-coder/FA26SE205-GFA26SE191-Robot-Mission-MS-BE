@@ -21,6 +21,8 @@ public partial class User
 
     public DateTime CreatedAt { get; set; }
 
+    public Guid? ZoneId { get; set; }
+
     public virtual ICollection<ActivityLog> ActivityLogs { get; set; } = new List<ActivityLog>();
 
     public virtual ICollection<Alert> AlertAcknowledgedByUsers { get; set; } = new List<Alert>();
@@ -50,4 +52,12 @@ public partial class User
     public virtual ICollection<SystemSetting> SystemSettings { get; set; } = new List<SystemSetting>();
 
     public virtual ICollection<Trip> Trips { get; set; } = new List<Trip>();
+
+    public virtual Zone? Zone { get; set; }
+
+    public virtual ICollection<Request> Requests { get; set; } = new List<Request>();
+
+    public virtual ICollection<Batch> CommittedBatches { get; set; } = new List<Batch>();
+
+    public virtual ICollection<Batch> DiscardedBatches { get; set; } = new List<Batch>();
 }

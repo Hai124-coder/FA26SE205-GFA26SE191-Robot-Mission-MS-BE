@@ -13,6 +13,9 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<Alert>().Property(e => e.Severity).HasColumnType("alert_severity").HasDefaultValueSql("'WARNING'::alert_severity");
         modelBuilder.Entity<Alert>().Property(e => e.Status).HasColumnType("alert_status").HasDefaultValueSql("'OPEN'::alert_status");
         modelBuilder.Entity<Batch>().Property(e => e.Source).HasColumnType("batch_source").HasDefaultValueSql("'IMPORT'::batch_source");
+        modelBuilder.Entity<Batch>().Property(e => e.Status).HasColumnType("batch_status").HasDefaultValueSql("'DRAFT'::batch_status");
+        modelBuilder.Entity<Request>().Property(e => e.Source).HasColumnType("batch_source");
+        modelBuilder.Entity<BatchRow>().Property(e => e.Priority).HasColumnType("mission_priority");
         modelBuilder.Entity<ChargingSession>().Property(e => e.Status).HasColumnType("charging_session_status").HasDefaultValueSql("'CHARGING'::charging_session_status");
         modelBuilder.Entity<ChargingStation>().Property(e => e.Status).HasColumnType("station_status").HasDefaultValueSql("'OPERATIONAL'::station_status");
         // Pharmacy is enum value 0: do not treat it as unset and replace it with DEPT.

@@ -40,6 +40,16 @@ public enum BatchSource
     Manual,
 }
 
+public enum BatchStatus
+{
+    [PgName("DRAFT")]
+    Draft,
+    [PgName("COMMITTED")]
+    Committed,
+    [PgName("DISCARDED")]
+    Discarded,
+}
+
 public enum ChargingSessionStatus
 {
     [PgName("CHARGING")]

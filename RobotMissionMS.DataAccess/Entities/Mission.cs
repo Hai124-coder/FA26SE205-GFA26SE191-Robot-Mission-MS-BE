@@ -43,6 +43,20 @@ public partial class Mission
     /// </summary>
     public string? RequestCode { get; set; }
 
+    public Guid? RequestId { get; set; }
+
+    public string? ItemCodeSnapshot { get; set; }
+
+    public string? ItemNameSnapshot { get; set; }
+
+    public string? UnitSnapshot { get; set; }
+
+    public string? PackagingSnapshot { get; set; }
+
+    public decimal? KgPerUnitSnapshot { get; set; }
+
+    public decimal? WeightKgSnapshot { get; set; }
+
     /// <summary>
     /// one item type per mission; required unless ScheduleId is set
     /// </summary>
@@ -100,4 +114,6 @@ public partial class Mission
     public virtual Trip? Trip { get; set; }
 
     public virtual Zone Zone { get; set; } = null!;
+
+    public virtual Request? Request { get; set; }
 }

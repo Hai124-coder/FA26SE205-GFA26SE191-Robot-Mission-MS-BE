@@ -29,7 +29,27 @@ public partial class Batch
 
     public DateTime CreatedAt { get; set; }
 
+    public string? TemplateVersion { get; set; }
+
+    public DateTime? CommittedAt { get; set; }
+
+    public Guid? CommittedByUserId { get; set; }
+
+    public DateTime? DiscardedAt { get; set; }
+
+    public Guid? DiscardedByUserId { get; set; }
+
+    public DateTime UpdatedAt { get; set; }
+
     public virtual User? CreatedByUser { get; set; }
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();
+
+    public virtual ICollection<BatchRow> BatchRows { get; set; } = new List<BatchRow>();
+
+    public virtual ICollection<Request> Requests { get; set; } = new List<Request>();
+
+    public virtual User? CommittedByUser { get; set; }
+
+    public virtual User? DiscardedByUser { get; set; }
 }

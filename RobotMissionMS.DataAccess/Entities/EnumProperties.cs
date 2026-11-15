@@ -12,6 +12,7 @@ public partial class Alert
 public partial class Batch
 {
     public BatchSource Source { get; set; }
+    public BatchStatus Status { get; set; }
 }
 
 public partial class ChargingSession

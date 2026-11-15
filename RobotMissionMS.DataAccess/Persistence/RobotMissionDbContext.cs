@@ -19,6 +19,8 @@ public partial class RobotMissionDbContext : DbContext
 
     public virtual DbSet<Batch> Batches { get; set; }
 
+    public virtual DbSet<BatchRow> BatchRows { get; set; }
+
     public virtual DbSet<ChargingSession> ChargingSessions { get; set; }
 
     public virtual DbSet<ChargingStation> ChargingStations { get; set; }
@@ -49,6 +51,8 @@ public partial class RobotMissionDbContext : DbContext
 
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
+    public virtual DbSet<Request> Requests { get; set; }
+
     public virtual DbSet<RobotType> RobotTypes { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
@@ -72,6 +76,7 @@ public partial class RobotMissionDbContext : DbContext
             .HasPostgresEnum("alert_severity", new[] { "INFO", "WARNING", "CRITICAL" })
             .HasPostgresEnum("alert_status", new[] { "OPEN", "ACKNOWLEDGED", "RESOLVED" })
             .HasPostgresEnum("batch_source", new[] { "IMPORT", "MANUAL" })
+            .HasPostgresEnum("batch_status", new[] { "DRAFT", "COMMITTED", "DISCARDED" })
             .HasPostgresEnum("charging_session_status", new[] { "CHARGING", "COMPLETED", "INTERRUPTED" })
             .HasPostgresEnum("location_kind", new[] { "PHARMACY", "STORAGE", "SPECIMEN", "DEPT", "WASTE_STATION", "CHARGER", "CLEAN_STATION", "WASTE_POINT", "CORRIDOR" })
             .HasPostgresEnum("map_version_status", new[] { "DRAFT", "PUBLISHED", "ARCHIVED" })
@@ -167,10 +172,41 @@ public partial class RobotMissionDbContext : DbContext
                 .HasComment("one row can be split into several missions");
             entity.Property(e => e.RejectedRows).HasDefaultValue(0);
             entity.Property(e => e.TotalRows).HasDefaultValue(0);
+            entity.Property(e => e.TemplateVersion).HasMaxLength(30);
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.CreatedByUser).WithMany(p => p.Batches)
                 .HasForeignKey(d => d.CreatedByUserId)
                 .HasConstraintName("Batches_CreatedByUserId_fkey");
+
+            entity.HasOne(d => d.CommittedByUser).WithMany(p => p.CommittedBatches)
+                .HasForeignKey(d => d.CommittedByUserId).HasConstraintName("Batches_CommittedByUserId_fkey");
+            entity.HasOne(d => d.DiscardedByUser).WithMany(p => p.DiscardedBatches)
+                .HasForeignKey(d => d.DiscardedByUserId).HasConstraintName("Batches_DiscardedByUserId_fkey");
+        });
+
+        modelBuilder.Entity<BatchRow>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("BatchRows_pkey");
+            entity.HasIndex(e => new { e.BatchId, e.RowNo }, "BatchRows_BatchId_RowNo_key").IsUnique();
+            entity.HasIndex(e => new { e.BatchId, e.IsValid }, "BatchRows_BatchId_IsValid_idx");
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.DepartmentCode).HasMaxLength(50);
+            entity.Property(e => e.ItemCode).HasMaxLength(50);
+            entity.Property(e => e.RequestCode).HasMaxLength(50);
+            entity.Property(e => e.DeadlineText).HasMaxLength(20);
+            entity.Property(e => e.Note).HasMaxLength(1000);
+            entity.Property(e => e.ErrorCode).HasMaxLength(50);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(500);
+            entity.Property(e => e.WarningMessage).HasMaxLength(500);
+            entity.Property(e => e.SplitQuantities).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+            entity.HasOne(e => e.Batch).WithMany(e => e.BatchRows).HasForeignKey(e => e.BatchId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("BatchRows_BatchId_fkey");
+            entity.HasOne(e => e.Zone).WithMany(e => e.BatchRows).HasForeignKey(e => e.ZoneId).HasConstraintName("BatchRows_ZoneId_fkey");
+            entity.HasOne(e => e.DepartmentLocation).WithMany().HasForeignKey(e => e.DepartmentLocationId).HasConstraintName("BatchRows_DepartmentLocationId_fkey");
+            entity.HasOne(e => e.Item).WithMany().HasForeignKey(e => e.ItemId).HasConstraintName("BatchRows_ItemId_fkey");
+            entity.HasOne(e => e.MissionType).WithMany().HasForeignKey(e => e.MissionTypeId).HasConstraintName("BatchRows_MissionTypeId_fkey");
         });
 
         modelBuilder.Entity<ChargingSession>(entity =>
@@ -384,6 +420,12 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.RequestCode)
                 .HasMaxLength(50)
                 .HasComment("same code for missions split from one request / import row");
+            entity.Property(e => e.ItemCodeSnapshot).HasMaxLength(50);
+            entity.Property(e => e.ItemNameSnapshot).HasMaxLength(200);
+            entity.Property(e => e.UnitSnapshot).HasMaxLength(30);
+            entity.Property(e => e.PackagingSnapshot).HasMaxLength(100);
+            entity.Property(e => e.KgPerUnitSnapshot).HasPrecision(8, 3);
+            entity.Property(e => e.WeightKgSnapshot).HasPrecision(10, 3);
             entity.Property(e => e.ScheduleId).HasComment("set for missions generated by a recurring schedule");
             entity.Property(e => e.ScheduledFor).HasComment("schedule run time this mission was generated for");
             entity.Property(e => e.SlotNo).HasComment("slot on the robot (one mission per slot)");
@@ -405,6 +447,10 @@ public partial class RobotMissionDbContext : DbContext
             entity.HasOne(d => d.Item).WithMany(p => p.Missions)
                 .HasForeignKey(d => d.ItemId)
                 .HasConstraintName("Missions_ItemId_fkey");
+
+            entity.HasOne(d => d.Request).WithMany(p => p.Missions)
+                .HasForeignKey(d => d.RequestId)
+                .HasConstraintName("Missions_RequestId_fkey");
 
             entity.HasOne(d => d.MissionType).WithMany(p => p.Missions)
                 .HasForeignKey(d => d.MissionTypeId)
@@ -544,6 +590,21 @@ public partial class RobotMissionDbContext : DbContext
                 .HasConstraintName("MissionTypePickupLocations_LocationId_ZoneId_fkey");
             entity.HasOne(e => e.UpdatedByUser).WithMany(e => e.MissionTypePickupLocationsUpdatedByUsers).HasForeignKey(e => e.UpdatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("MissionTypePickupLocations_UpdatedByUserId_fkey");
+        });
+
+        modelBuilder.Entity<Request>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("Requests_pkey");
+            entity.HasIndex(e => e.RequestCode, "Requests_RequestCode_key").IsUnique();
+            entity.HasIndex(e => new { e.ZoneId, e.CreatedAt }, "Requests_ZoneId_CreatedAt_idx");
+            entity.HasIndex(e => e.BatchId, "Requests_BatchId_idx");
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.RequestCode).HasMaxLength(50);
+            entity.Property(e => e.Note).HasMaxLength(1000);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasOne(e => e.Zone).WithMany(e => e.Requests).HasForeignKey(e => e.ZoneId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("Requests_ZoneId_fkey");
+            entity.HasOne(e => e.Batch).WithMany(e => e.Requests).HasForeignKey(e => e.BatchId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("Requests_BatchId_fkey");
+            entity.HasOne(e => e.CreatedByUser).WithMany(e => e.Requests).HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("Requests_CreatedByUserId_fkey");
         });
 
         modelBuilder.Entity<Robot>(entity =>
@@ -699,6 +760,7 @@ public partial class RobotMissionDbContext : DbContext
             entity.HasKey(e => e.Id).HasName("Users_pkey");
 
             entity.HasIndex(e => e.Username, "Users_Username_key").IsUnique();
+            entity.HasIndex(e => e.ZoneId, "Users_ZoneId_idx");
 
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
@@ -712,6 +774,11 @@ public partial class RobotMissionDbContext : DbContext
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("Users_RoleId_fkey");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.Users)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("Users_ZoneId_fkey");
         });
 
         modelBuilder.Entity<Zone>(entity =>
