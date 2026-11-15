@@ -28,6 +28,8 @@ public sealed class RequestsController(IRequestPreviewService requestPreviewServ
         return result.Error switch
         {
             RequestPreviewError.InvalidRequest => Problem(type: "REQUESTS_INVALID_PREVIEW", title: "The preview request is invalid.", statusCode: 400),
+            RequestPreviewError.InvalidPriority => Problem(type: "REQUESTS_INVALID_PRIORITY", title: "Priority must be NORMAL, HIGH, or URGENT.", statusCode: 400),
+            RequestPreviewError.InvalidDeadline => Problem(type: "REQUESTS_INVALID_DEADLINE", title: "Deadline must use HH:mm.", statusCode: 400),
             RequestPreviewError.OperatorFloorNotConfigured => Problem(type: "OPERATOR_FLOOR_NOT_CONFIGURED", title: "The operator does not have a floor assignment.", statusCode: 409),
             RequestPreviewError.OperatorFloorInactive => Problem(type: "FLOORS_INACTIVE", title: "The operator floor is inactive.", statusCode: 409),
             RequestPreviewError.DepartmentNotFound => Problem(type: "DEPARTMENTS_NOT_FOUND", title: "The department was not found.", statusCode: 400),
@@ -81,6 +83,8 @@ public sealed class RequestsController(IRequestPreviewService requestPreviewServ
     private ObjectResult PreviewFailure(RequestPreviewError error) => error switch
     {
         RequestPreviewError.InvalidRequest => Problem(type: "REQUESTS_INVALID_PREVIEW", title: "The request is invalid.", statusCode: 400),
+        RequestPreviewError.InvalidPriority => Problem(type: "REQUESTS_INVALID_PRIORITY", title: "Priority must be NORMAL, HIGH, or URGENT.", statusCode: 400),
+        RequestPreviewError.InvalidDeadline => Problem(type: "REQUESTS_INVALID_DEADLINE", title: "Deadline must use HH:mm.", statusCode: 400),
         RequestPreviewError.OperatorFloorNotConfigured => Problem(type: "OPERATOR_FLOOR_NOT_CONFIGURED", title: "The operator does not have a floor assignment.", statusCode: 409),
         RequestPreviewError.OperatorFloorInactive => Problem(type: "FLOORS_INACTIVE", title: "The operator floor is inactive.", statusCode: 409),
         RequestPreviewError.DepartmentNotFound => Problem(type: "DEPARTMENTS_NOT_FOUND", title: "The department was not found.", statusCode: 400),

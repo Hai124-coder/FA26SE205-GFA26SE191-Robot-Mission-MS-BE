@@ -18,6 +18,7 @@ public sealed class RequestPreviewService(RequestValidationService validator) : 
         var pickupCode = data.Item.PickupLocationCode ?? throw new InvalidOperationException("Successful validation did not include pickup data.");
         var pickupName = data.Item.PickupLocationName ?? throw new InvalidOperationException("Successful validation did not include pickup data.");
         var kgPerUnit = item.KgPerUnit ?? throw new InvalidOperationException("Successful validation did not include item weight.");
+        var priority = validation.Priority ?? throw new InvalidOperationException("Successful validation did not include priority.");
 
         var remaining = request.Quantity;
         var splits = new List<RequestPreviewSplitResponse>();
@@ -37,7 +38,9 @@ public sealed class RequestPreviewService(RequestValidationService validator) : 
                 MissionType = item.MissionTypeCode, MissionTypeName = item.MissionTypeName,
                 MaxQtyPerSlot = item.MaxQtyPerSlot, KgPerUnit = kgPerUnit },
             PickupLocation = new RequestPreviewLocationResponse { Code = pickupCode, Name = pickupName },
-            Quantity = request.Quantity, TaskCount = splits.Count, TotalWeightKg = request.Quantity * kgPerUnit,
+            Quantity = request.Quantity, Priority = priority.ToString().ToUpperInvariant(),
+            DeadlineAt = validation.DeadlineAt is { } deadlineAt ? new DateTimeOffset(deadlineAt) : null,
+            TaskCount = splits.Count, TotalWeightKg = request.Quantity * kgPerUnit,
             Splits = splits
         });
     }

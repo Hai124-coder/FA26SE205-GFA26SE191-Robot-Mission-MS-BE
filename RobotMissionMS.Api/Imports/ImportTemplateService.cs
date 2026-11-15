@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
@@ -8,13 +9,13 @@ namespace RobotMissionMS.Api.Imports;
 public interface IImportTemplateService
 {
     Task<byte[]> CreateAsync(CancellationToken cancellationToken = default);
-    Task<object> ImportAsync(Guid userId, string floor, IFormFile file, CancellationToken cancellationToken = default);
-    Task<object?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default);
+    Task<ImportBatchResponse> ImportAsync(Guid userId, string floor, IFormFile file, CancellationToken cancellationToken = default);
+    Task<ImportBatchResponse?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
-    Task<object> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
-    Task<object> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
-    Task<object> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
-    Task<object> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
+    Task<ImportCommitResponse> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ImportListItemResponse>> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<HospitalFileResponse>> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
+    Task<ImportBatchResponse> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
 }
 
 public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImportParser parser) : IImportTemplateService
@@ -62,34 +63,41 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         return output.ToArray();
     }
 
-    public async Task<object> ImportAsync(Guid userId, string floor, IFormFile file, CancellationToken cancellationToken = default)
+    public async Task<ImportBatchResponse> ImportAsync(Guid userId, string floor, IFormFile file, CancellationToken cancellationToken = default)
     {
         if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("IMPORT_FILE_INVALID");
-        await using var input = file.OpenReadStream(); var inputRows = parser.Parse(input);
+        await using var input = file.OpenReadStream(); return (await CreateDraftAsync(input, file.FileName, userId, floor, cancellationToken)).Response;
+    }
+
+    private async Task<ImportDraftResult> CreateDraftAsync(Stream input, string fileName, Guid userId, string floor, CancellationToken cancellationToken)
+    {
+        var inputRows = parser.Parse(input);
         var items = await db.Items.Include(x => x.MissionType).ThenInclude(x => x.MissionTypePickupLocations).ThenInclude(x => x.Location)
             .Where(x => x.IsActive && x.MissionType.IsActive && x.MissionType.Mode == MissionMode.Batch).ToDictionaryAsync(x => x.Code, cancellationToken);
         var departments = await db.Locations.Include(x => x.Zone).Where(x => x.IsActive && x.Kind == LocationKind.Dept).ToDictionaryAsync(x => x.Code, cancellationToken);
         var zoneId = await db.Zones.Where(x => x.Code == floor && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("FLOORS_INACTIVE");
-        var now = DateTime.UtcNow; var batch = new RobotMissionMS.DataAccess.Entities.Batch { Id = Guid.NewGuid(), ZoneId = zoneId, BatchCode = $"IMP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FileName = Path.GetFileName(file.FileName), CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now, TemplateVersion = "RMMS-YC v3", Source = BatchSource.Import, Status = BatchStatus.Draft };
+        var now = DateTime.UtcNow; var batch = new RobotMissionMS.DataAccess.Entities.Batch { Id = Guid.NewGuid(), ZoneId = zoneId, BatchCode = $"IMP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FileName = Path.GetFileName(fileName), CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now, TemplateVersion = "RMMS-YC v3", Source = BatchSource.Import, Status = BatchStatus.Draft };
         var rows = new List<RobotMissionMS.DataAccess.Entities.BatchRow>();
         foreach (var inputRow in inputRows) { var rowNo = inputRow.RowNo; var departmentCode = inputRow.DepartmentCode; var itemCode = inputRow.ItemCode; var quantityText = inputRow.QuantityText; RobotMissionMS.DataAccess.Entities.Location? department = null; RobotMissionMS.DataAccess.Entities.Item? item = null;
-            var valid = int.TryParse(quantityText, out var quantity) && quantity is >= 1 and <= 600 && departments.TryGetValue(departmentCode, out department) && department.Zone.Code == floor && items.TryGetValue(itemCode, out item) && item.KgPerUnit is > 0 && item.MaxQtyPerSlot > 0 && item.MissionType.MissionTypePickupLocations.Any(x => x.ZoneId == department.ZoneId && x.Location.IsActive);
+            var quantity = 0; var priority = MissionPriority.Normal; var priorityValid = string.IsNullOrWhiteSpace(inputRow.PriorityText) || Enum.TryParse(inputRow.PriorityText, true, out priority);
+            var deadlineValid = string.IsNullOrWhiteSpace(inputRow.DeadlineText) || TimeOnly.TryParse(inputRow.DeadlineText, out _);
+            var valid = priorityValid && deadlineValid && int.TryParse(quantityText, out quantity) && quantity is >= 1 and <= 600 && departments.TryGetValue(departmentCode, out department) && department.Zone.Code == floor && items.TryGetValue(itemCode, out item) && item.KgPerUnit is > 0 && item.MaxQtyPerSlot > 0 && item.MissionType.MissionTypePickupLocations.Any(x => x.ZoneId == department.ZoneId && x.Location.IsActive);
             var splits = valid ? Enumerable.Range(0, (quantity + item!.MaxQtyPerSlot - 1) / item.MaxQtyPerSlot).Select(i => Math.Min(item.MaxQtyPerSlot, quantity - i * item.MaxQtyPerSlot)).ToArray() : [];
-            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = inputRow.RequestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = MissionPriority.Normal, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : "C3", ErrorMessage = valid ? null : "Dòng không hợp lệ hoặc không thuộc tầng Operator.", SplitQuantities = System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
-        batch.TotalRows = rows.Count; batch.AcceptedRows = rows.Count(x => x.IsValid); batch.RejectedRows = batch.TotalRows - batch.AcceptedRows; batch.GeneratedMissions = rows.Sum(x => x.MissionsToCreate); db.Batches.Add(batch); db.BatchRows.AddRange(rows); await db.SaveChangesAsync(cancellationToken); return await GetAsync(batch.Id, floor, cancellationToken) ?? throw new InvalidOperationException();
+            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = inputRow.RequestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = priorityValid ? priority : null, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : "C3", ErrorMessage = valid ? null : !priorityValid ? "UuTien phải là NORMAL, HIGH hoặc URGENT." : !deadlineValid ? "HanGiao phải là giờ hợp lệ." : "Dòng không hợp lệ hoặc không thuộc tầng Operator.", SplitQuantities = System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
+        batch.TotalRows = rows.Count; batch.AcceptedRows = rows.Count(x => x.IsValid); batch.RejectedRows = batch.TotalRows - batch.AcceptedRows; batch.GeneratedMissions = rows.Sum(x => x.MissionsToCreate); db.Batches.Add(batch); db.BatchRows.AddRange(rows); await db.SaveChangesAsync(cancellationToken); return new ImportDraftResult(batch.Id, ImportResponseMapper.ToDetail(batch));
     }
 
-    public async Task<object?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default)
+    public async Task<ImportBatchResponse?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default)
     {
         var batch = await db.Batches.AsNoTracking().Include(x => x.Zone).Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken); if (batch is null) return null;
         if (floor is not null && batch.Zone?.Code != floor) return null;
-        return new { importId = batch.Id, batch.BatchCode, batch.FileName, status = batch.Status.ToString().ToUpperInvariant(), batch.TemplateVersion, totalRows = batch.TotalRows, validRows = batch.AcceptedRows, invalidRows = batch.RejectedRows, tasksToCreate = batch.GeneratedMissions, rows = batch.BatchRows.OrderBy(x => x.RowNo).Select(x => new { x.RowNo, x.RequestCode, department = x.DepartmentCode, x.ItemCode, x.Quantity, valid = x.IsValid, x.ErrorCode, error = x.ErrorMessage, split = x.SplitQuantities }) };
+        return ImportResponseMapper.ToDetail(batch);
     }
 
     public async Task<bool> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
     { var batch = await db.Batches.Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id && x.Status == BatchStatus.Draft, cancellationToken); if (batch is null || batch.CreatedByUserId != userId || batch.BatchRows.Any(x => x.ZoneId != null && x.ZoneId != db.Zones.Where(z => z.Code == floor).Select(z => z.Id).FirstOrDefault())) return false; db.Batches.Remove(batch); await db.SaveChangesAsync(cancellationToken); return true; }
 
-    public async Task<object> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
+    public async Task<ImportCommitResponse> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var batch = await db.Batches.Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken) ?? throw new InvalidOperationException("IMPORT_NOT_FOUND");
@@ -114,12 +122,12 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         batch.Status = BatchStatus.Committed; batch.CommittedAt = DateTime.UtcNow; batch.CommittedByUserId = userId; batch.UpdatedAt = DateTime.UtcNow; batch.GeneratedMissions = validRows.Sum(x => x.MissionsToCreate);
         db.ActivityLogs.Add(new RobotMissionMS.DataAccess.Entities.ActivityLog { UserId = userId, Timestamp = DateTime.UtcNow, Action = "IMPORT_COMMITTED", TargetObject = $"Batch:{batch.Id:D}" });
         await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
-        return new { importId = batch.Id, status = "COMMITTED", acceptedRows = validRows.Count, rejectedRows = batch.RejectedRows, generatedMissions = batch.GeneratedMissions };
+        return new ImportCommitResponse { ImportId = batch.Id, Status = "COMMITTED", AcceptedRows = validRows.Count, RejectedRows = batch.RejectedRows, GeneratedMissions = batch.GeneratedMissions, CommittedAt = new DateTimeOffset(batch.CommittedAt!.Value) };
     }
-    public async Task<object> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
-    { var query = db.Batches.AsNoTracking().AsQueryable(); if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.BatchRows.Any(row => row.Zone != null && row.Zone.Code == floor)); if (from.HasValue) query = query.Where(x => x.CreatedAt >= from); if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1)); if (Enum.TryParse<BatchStatus>(status, true, out var parsed)) query = query.Where(x => x.Status == parsed); var rows = await query.OrderByDescending(x => x.CreatedAt).Select(x => new { importId = x.Id, x.BatchCode, x.FileName, status = x.Status, x.TemplateVersion, totalRows = x.TotalRows, validRows = x.AcceptedRows, invalidRows = x.RejectedRows, tasksToCreate = x.GeneratedMissions, x.CreatedAt }).ToListAsync(cancellationToken); return rows.Select(x => new { x.importId, x.BatchCode, x.FileName, status = x.status.ToString().ToUpperInvariant(), x.TemplateVersion, x.totalRows, x.validRows, x.invalidRows, x.tasksToCreate, x.CreatedAt }); }
-    public async Task<object> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
-    { var query = db.HospitalFiles.AsNoTracking().AsQueryable(); if (imported.HasValue) query = query.Where(x => (x.ImportedBatchId != null) == imported.Value); if (from.HasValue) query = query.Where(x => x.ReceivedAt >= from); if (to.HasValue) query = query.Where(x => x.ReceivedAt < to.Value.AddDays(1)); return await query.OrderByDescending(x => x.ReceivedAt).Select(x => new { id = x.Id, x.FileName, x.ContentType, x.SizeBytes, x.SenderName, x.ReceivedAt, x.Note, isImported = x.ImportedBatchId != null, x.ImportedAt, importedBy = x.ImportedByUser == null ? null : x.ImportedByUser.FullName, x.ImportedBatchId, batchCode = x.ImportedBatch == null ? null : x.ImportedBatch.BatchCode }).ToListAsync(cancellationToken); }
-    public async Task<object> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
-    { var file = await db.HospitalFiles.SingleOrDefaultAsync(x => x.Id == id, cancellationToken) ?? throw new InvalidOperationException("HOSPITAL_FILE_NOT_FOUND"); if (file.ImportedBatchId != null) throw new InvalidOperationException("HOSPITAL_FILE_ALREADY_IMPORTED"); using var stream = new MemoryStream(file.Content, writable: false); var upload = new Microsoft.AspNetCore.Http.FormFile(stream, 0, file.Content.Length, "file", file.FileName) { Headers = new Microsoft.AspNetCore.Http.HeaderDictionary(), ContentType = file.ContentType }; await ImportAsync(userId, floor, upload, cancellationToken); var batch = await db.Batches.OrderByDescending(x => x.CreatedAt).FirstAsync(x => x.CreatedByUserId == userId && x.FileName == file.FileName, cancellationToken); file.ImportedBatchId = batch.Id; file.ImportedAt = DateTime.UtcNow; file.ImportedByUserId = userId; await db.SaveChangesAsync(cancellationToken); return await GetAsync(batch.Id, floor, cancellationToken) ?? throw new InvalidOperationException(); }
+    public async Task<IReadOnlyList<ImportListItemResponse>> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
+    { var query = db.Batches.AsNoTracking().AsQueryable(); if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.Zone != null && x.Zone.Code == floor); if (from.HasValue) query = query.Where(x => x.CreatedAt >= from); if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1)); if (Enum.TryParse<BatchStatus>(status, true, out var parsed)) query = query.Where(x => x.Status == parsed); return await query.OrderByDescending(x => x.CreatedAt).Select(x => new ImportListItemResponse { ImportId = x.Id, BatchCode = x.BatchCode, FileName = x.FileName, Status = x.Status.ToString().ToUpperInvariant(), TotalRows = x.TotalRows, ValidRows = x.AcceptedRows, InvalidRows = x.RejectedRows, TasksToCreate = x.GeneratedMissions, CreatedAt = new DateTimeOffset(x.CreatedAt) }).ToListAsync(cancellationToken); }
+    public async Task<IReadOnlyList<HospitalFileResponse>> ListHospitalFilesAsync(bool? imported, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
+    { var query = db.HospitalFiles.AsNoTracking().AsQueryable(); if (imported.HasValue) query = query.Where(x => (x.ImportedBatchId != null) == imported.Value); if (from.HasValue) query = query.Where(x => x.ReceivedAt >= from); if (to.HasValue) query = query.Where(x => x.ReceivedAt < to.Value.AddDays(1)); return await query.OrderByDescending(x => x.ReceivedAt).Select(x => new HospitalFileResponse { Id = x.Id, FileName = x.FileName, ContentType = x.ContentType, SizeBytes = x.SizeBytes, SenderName = x.SenderName, ReceivedAt = new DateTimeOffset(x.ReceivedAt), Note = x.Note, IsImported = x.ImportedBatchId != null, ImportedAt = x.ImportedAt == null ? null : new DateTimeOffset(x.ImportedAt.Value), ImportedBy = x.ImportedByUser == null ? null : x.ImportedByUser.FullName, ImportedBatchId = x.ImportedBatchId, BatchCode = x.ImportedBatch == null ? null : x.ImportedBatch.BatchCode }).ToListAsync(cancellationToken); }
+    public async Task<ImportBatchResponse> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
+    { await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken); var file = await db.HospitalFiles.SingleOrDefaultAsync(x => x.Id == id, cancellationToken) ?? throw new InvalidOperationException("HOSPITAL_FILE_NOT_FOUND"); if (file.ImportedBatchId != null) throw new InvalidOperationException("HOSPITAL_FILE_ALREADY_IMPORTED"); using var stream = new MemoryStream(file.Content, writable: false); var draft = await CreateDraftAsync(stream, file.FileName, userId, floor, cancellationToken); file.ImportedBatchId = draft.BatchId; file.ImportedAt = DateTime.UtcNow; file.ImportedByUserId = userId; await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return draft.Response; }
 }

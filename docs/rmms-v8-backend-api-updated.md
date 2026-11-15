@@ -235,6 +235,27 @@ Màn SC-10 Tạo nhiệm vụ. Import đi theo 2 bước: tải lên để kiể
 | GET | /hospital-files | Operator | Hộp thư file bệnh viện gửi xuống (tên file, người gửi, giờ, đã import chưa) |
 | POST | /hospital-files/{fileId}/import | Operator | Import thẳng một file trong hộp thư; kết quả giống POST /imports |
 
+### Contract tạo đơn lẻ
+
+`POST /requests/preview` và `POST /requests` dùng cùng payload. `priority` là bắt buộc;
+`deadline` và `note` là tuỳ chọn.
+
+```json
+{
+  "department": "F2-ICU",
+  "itemCode": "TH-NACL",
+  "quantity": 20,
+  "priority": "HIGH",
+  "deadline": "10:30",
+  "note": "Bổ sung cho tủ trực"
+}
+```
+
+- `priority` chỉ nhận `NORMAL`, `HIGH` hoặc `URGENT`.
+- `deadline` dùng giờ địa phương Việt Nam theo dạng `HH:mm`. Backend ghép giờ này với
+  ngày vận hành hiện tại và lưu thành `DeadlineAt` cho mọi nhiệm vụ tách ra từ yêu cầu.
+- `note` dài tối đa 1.000 ký tự và được lưu vào yêu cầu cùng các nhiệm vụ sinh ra.
+
 Ví dụ kết quả POST /imports:
 
 

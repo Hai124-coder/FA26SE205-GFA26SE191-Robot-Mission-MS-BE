@@ -12,4 +12,13 @@ public sealed class RequestPreviewRequest
 
     [Range(1, 600)]
     public int Quantity { get; init; }
+
+    [Required, StringLength(10)]
+    public string Priority { get; init; } = string.Empty;
+
+    /// <summary>Optional local operating-time deadline in HH:mm format.</summary>
+    public string? Deadline { get; init; }
+
+    [StringLength(1000)]
+    public string? Note { get; init; }
 }

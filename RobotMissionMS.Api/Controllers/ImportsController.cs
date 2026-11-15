@@ -27,18 +27,31 @@ public sealed class ImportsController(IImportTemplateService templateService) : 
     }
     [HttpPost]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Import([FromForm] IFormFile file, CancellationToken cancellationToken)
     { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.ImportAsync(userId, floor, file, cancellationToken)); } catch (InvalidOperationException e) when (e.Message.StartsWith("IMPORT_")) { return Problem(type: e.Message, statusCode: 400); } }
     [HttpGet("{id:guid}")]
     [Authorize(Policy = AuthPolicies.OperationsRead)]
+    [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     { var result = await templateService.GetAsync(id, User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null, cancellationToken); return result is null ? NotFound() : Ok(result); }
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); return await templateService.DeleteAsync(id, userId, floor, cancellationToken) ? NoContent() : NotFound(); }
     [HttpPost("{id:guid}/commit")]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    [ProducesResponseType(typeof(ImportCommitResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Commit(Guid id, CancellationToken cancellationToken)
     { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.CommitAsync(id, userId, floor, cancellationToken)); } catch (InvalidOperationException e) { return e.Message switch { "IMPORT_NOT_FOUND" => NotFound(), "IMPORT_FORBIDDEN" => Problem(type: "FLOOR_FORBIDDEN", statusCode: 403), _ => Problem(type: e.Message, statusCode: 409) }; } }
 }

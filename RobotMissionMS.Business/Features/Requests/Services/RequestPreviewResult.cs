@@ -5,6 +5,8 @@ namespace RobotMissionMS.Business.Features.Requests.Services;
 public enum RequestPreviewError
 {
     InvalidRequest,
+    InvalidPriority,
+    InvalidDeadline,
     OperatorFloorNotConfigured,
     OperatorFloorInactive,
     DepartmentNotFound,

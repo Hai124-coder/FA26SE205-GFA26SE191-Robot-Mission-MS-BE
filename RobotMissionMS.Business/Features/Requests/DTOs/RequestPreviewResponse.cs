@@ -7,6 +7,8 @@ public sealed class RequestPreviewResponse
     public required RequestPreviewItemResponse Item { get; init; }
     public required RequestPreviewLocationResponse PickupLocation { get; init; }
     public required int Quantity { get; init; }
+    public required string Priority { get; init; }
+    public DateTimeOffset? DeadlineAt { get; init; }
     public required int TaskCount { get; init; }
     public required decimal TotalWeightKg { get; init; }
     public required IReadOnlyList<RequestPreviewSplitResponse> Splits { get; init; }

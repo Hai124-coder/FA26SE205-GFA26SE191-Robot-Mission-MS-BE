@@ -29,7 +29,7 @@ public sealed class RequestService(IRequestPreviewRepository repository, Request
         }
         var zoneId = data.OperatorZoneId ?? throw new InvalidOperationException("Operator zone ID is missing after validation.");
         var created = await repository.CreateManualRequestAsync(new ManualRequestCreateData(operatorUserId, zoneId, requestCode,
-            createdAt, department, item, missions), cancellationToken);
+            createdAt, validation.Priority!.Value, validation.DeadlineAt, validation.Note, department, item, missions), cancellationToken);
         return RequestCreateResult.Success(ToResponse(created!));
     }
 
@@ -58,7 +58,9 @@ public sealed class RequestService(IRequestPreviewRepository repository, Request
             MissionTypeName = mission.MissionTypeName, PickupLocation = new RequestPreviewLocationResponse { Code = mission.FromLocationCode, Name = mission.FromLocationName },
             Department = new RequestPreviewLocationResponse { Code = mission.ToLocationCode, Name = mission.ToLocationName },
             ItemCode = mission.ItemCode, ItemName = mission.ItemName, Unit = mission.Unit, Packaging = mission.Packaging,
-            KgPerUnit = mission.KgPerUnit, WeightKg = mission.WeightKg, Quantity = mission.Quantity, SlotNo = mission.SlotNo,
+            KgPerUnit = mission.KgPerUnit, WeightKg = mission.WeightKg, Quantity = mission.Quantity,
+            Priority = mission.Priority.ToString().ToUpperInvariant(),
+            DeadlineAt = mission.DeadlineAt is { } deadlineAt ? new DateTimeOffset(deadlineAt) : null, SlotNo = mission.SlotNo,
             CreatedAt = new DateTimeOffset(mission.CreatedAt)
         }).ToList()
     };

@@ -27,6 +27,8 @@ public sealed class RequestMissionResponse
     public required decimal KgPerUnit { get; init; }
     public required decimal WeightKg { get; init; }
     public required int Quantity { get; init; }
+    public required string Priority { get; init; }
+    public DateTimeOffset? DeadlineAt { get; init; }
     public required int SlotNo { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
 }

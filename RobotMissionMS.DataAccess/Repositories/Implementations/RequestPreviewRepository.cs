@@ -45,17 +45,18 @@ public sealed class RequestPreviewRepository(RobotMissionDbContext db) : IReques
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var entity = new Request { Id = Guid.NewGuid(), RequestCode = request.RequestCode, ZoneId = request.ZoneId,
-            Source = BatchSource.Manual, CreatedByUserId = request.CreatedByUserId, CreatedAt = request.CreatedAt };
+            Source = BatchSource.Manual, CreatedByUserId = request.CreatedByUserId, CreatedAt = request.CreatedAt, Note = request.Note };
         db.Requests.Add(entity);
         foreach (var mission in request.Missions)
         {
             db.Missions.Add(new Mission { Id = Guid.NewGuid(), MissionCode = mission.MissionCode,
                 MissionTypeId = request.Item.MissionTypeId, ZoneId = request.ZoneId, RequestId = entity.Id,
                 RequestCode = entity.RequestCode, FromLocationId = request.Item.PickupLocationId, ToLocationId = request.Department.Id,
-                ItemId = request.Item.Id, Quantity = mission.Quantity, SlotNo = mission.SlotNo, Priority = MissionPriority.Normal,
+                ItemId = request.Item.Id, Quantity = mission.Quantity, SlotNo = mission.SlotNo, Priority = request.Priority,
                 Status = MissionStatus.Pending, CreatedByUserId = request.CreatedByUserId, CreatedAt = request.CreatedAt,
                 ItemCodeSnapshot = request.Item.Code, ItemNameSnapshot = request.Item.Name, UnitSnapshot = request.Item.Unit,
-                PackagingSnapshot = request.Item.Packaging, KgPerUnitSnapshot = request.Item.KgPerUnit, WeightKgSnapshot = mission.WeightKg });
+                PackagingSnapshot = request.Item.Packaging, KgPerUnitSnapshot = request.Item.KgPerUnit, WeightKgSnapshot = mission.WeightKg,
+                DeadlineAt = request.DeadlineAt, Note = request.Note });
         }
         db.ActivityLogs.Add(new ActivityLog { UserId = request.CreatedByUserId, Timestamp = request.CreatedAt,
             Action = "MANUAL_REQUEST_CREATED", TargetObject = $"Request:{entity.Id:D};Code:{entity.RequestCode}" });
@@ -75,7 +76,8 @@ public sealed class RequestPreviewRepository(RobotMissionDbContext db) : IReques
             .Select(value => new RequestMissionDetailData(value.MissionCode, value.Status, value.MissionType.Code,
                 value.MissionType.Name, value.FromLocation!.Code, value.FromLocation.Name, value.ToLocation!.Code, value.ToLocation.Name,
                 value.ItemCodeSnapshot!, value.ItemNameSnapshot!, value.UnitSnapshot!, value.PackagingSnapshot,
-                value.KgPerUnitSnapshot!.Value, value.WeightKgSnapshot!.Value, value.Quantity!.Value, value.SlotNo!.Value, value.CreatedAt))
+                value.KgPerUnitSnapshot!.Value, value.WeightKgSnapshot!.Value, value.Quantity!.Value, value.Priority,
+                value.DeadlineAt, value.SlotNo!.Value, value.CreatedAt))
             .ToListAsync(cancellationToken);
         return new RequestDetailData(request.RequestCode, request.FloorCode, request.FloorName, request.Source, request.CreatedAt,
             request.CreatedByUsername, request.Note, missions);
