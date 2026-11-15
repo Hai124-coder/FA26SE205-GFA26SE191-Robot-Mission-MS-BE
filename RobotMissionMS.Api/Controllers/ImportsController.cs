@@ -35,12 +35,13 @@ public sealed class ImportsController(IImportTemplateService templateService) : 
     }
     [HttpPost]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    [RequestSizeLimit(ImportTemplateService.MaximumUploadBytes)]
     [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Import([FromForm] IFormFile file, CancellationToken cancellationToken)
-    { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.ImportAsync(userId, floor, file, cancellationToken)); } catch (InvalidOperationException e) when (e.Message == "FLOORS_INACTIVE") { return Problem(type: e.Message, statusCode: 403); } catch (InvalidOperationException e) when (e.Message.StartsWith("IMPORT_")) { return Problem(type: e.Message, statusCode: 400); } }
+    { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.ImportAsync(userId, floor, file, cancellationToken)); } catch (InvalidOperationException e) when (e.Message == "FLOORS_INACTIVE") { return Problem(type: e.Message, statusCode: 403); } catch (InvalidOperationException e) when (e.Message == "IMPORT_FILE_TOO_LARGE") { return Problem(type: e.Message, statusCode: 413); } catch (InvalidOperationException e) when (e.Message.StartsWith("IMPORT_")) { return Problem(type: e.Message, statusCode: 400); } }
     [HttpGet("{id:guid}")]
     [Authorize(Policy = AuthPolicies.OperationsRead)]
     [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]

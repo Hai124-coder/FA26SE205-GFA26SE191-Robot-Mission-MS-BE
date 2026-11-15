@@ -24,6 +24,7 @@ public interface IImportTemplateService
 public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImportParser parser) : IImportTemplateService
 {
     private static readonly Regex RequestCodePattern = new("^YC-[A-Za-z0-9-]{1,46}$", RegexOptions.CultureInvariant);
+    public const long MaximumUploadBytes = 10 * 1024 * 1024;
 
     public async Task<byte[]> CreateAsync(CancellationToken cancellationToken = default)
     {
@@ -87,6 +88,7 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
     {
         if (file.Length == 0 || file.FileName.Length > 255 || !file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("IMPORT_FILE_INVALID");
+        if (file.Length > MaximumUploadBytes) throw new InvalidOperationException("IMPORT_FILE_TOO_LARGE");
         await using var input = file.OpenReadStream(); return (await CreateDraftAsync(input, file.FileName, userId, floor, cancellationToken)).Response;
     }
 
@@ -94,16 +96,25 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
     {
         var parsedImport = parser.Parse(input);
         var inputRows = parsedImport.Rows;
+        if (inputRows.Count == 0) throw new InvalidOperationException("IMPORT_EMPTY");
         var items = await db.Items.Include(x => x.MissionType).ThenInclude(x => x.MissionTypePickupLocations).ThenInclude(x => x.Location)
             .Where(x => x.IsActive && x.MissionType.IsActive && x.MissionType.Mode == MissionMode.Batch).ToDictionaryAsync(x => x.Code, cancellationToken);
         var departments = await db.Locations.Include(x => x.Zone).Where(x => x.IsActive && x.Kind == LocationKind.Dept).ToDictionaryAsync(x => x.Code, cancellationToken);
         var zoneId = await db.Zones.Where(x => x.Code == floor && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("FLOORS_INACTIVE");
+        var suppliedCodes = inputRows.Select(row => NormalizeRequestCode(row.RequestCode)).Where(code => code is not null).Cast<string>().ToArray();
+        var duplicateCodes = suppliedCodes.GroupBy(code => code, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+            .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingCodes = suppliedCodes.Length == 0
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : (await db.Requests.AsNoTracking().Where(request => suppliedCodes.Contains(request.RequestCode.ToUpper()))
+                .Select(request => request.RequestCode).ToListAsync(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var now = DateTime.UtcNow; var batch = new RobotMissionMS.DataAccess.Entities.Batch { Id = Guid.NewGuid(), ZoneId = zoneId, BatchCode = $"IMP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FileName = Path.GetFileName(fileName), CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now, TemplateVersion = parsedImport.TemplateVersion, Source = BatchSource.Import, Status = BatchStatus.Draft };
         var rows = new List<RobotMissionMS.DataAccess.Entities.BatchRow>();
-        foreach (var inputRow in inputRows) { var rowNo = inputRow.RowNo; var departmentCode = inputRow.DepartmentCode; var itemCode = inputRow.ItemCode; var quantityText = inputRow.QuantityText; RobotMissionMS.DataAccess.Entities.Location? department = null; RobotMissionMS.DataAccess.Entities.Item? item = null;
+        foreach (var inputRow in inputRows) { var rowNo = inputRow.RowNo; var requestCode = NormalizeRequestCode(inputRow.RequestCode); var departmentCode = inputRow.DepartmentCode; var itemCode = inputRow.ItemCode; var quantityText = inputRow.QuantityText; RobotMissionMS.DataAccess.Entities.Location? department = null; RobotMissionMS.DataAccess.Entities.Item? item = null;
             var quantity = 0; var priorityValid = TryParsePriority(inputRow.PriorityText, out var priority);
             var deadlineValid = ImportDeadline.TryGetUtc(inputRow.DeadlineText, out var deadlineAt);
-            var fieldsValid = IsValidRequestCode(inputRow.RequestCode) && departmentCode.Length is > 0 and <= 50 && itemCode.Length is > 0 and <= 50 && inputRow.Note?.Length <= 1000 && priorityValid && deadlineValid && int.TryParse(quantityText, out quantity) && quantity is >= 1 and <= 600;
+            var requestCodeDuplicate = requestCode is not null && (duplicateCodes.Contains(requestCode) || existingCodes.Contains(requestCode));
+            var fieldsValid = IsValidRequestCode(requestCode) && !requestCodeDuplicate && departmentCode.Length is > 0 and <= 50 && itemCode.Length is > 0 and <= 50 && inputRow.Note?.Length <= 1000 && priorityValid && deadlineValid && int.TryParse(quantityText, out quantity) && quantity is >= 1 and <= 600;
             var departmentFound = departments.TryGetValue(departmentCode, out department);
             var floorAllowed = departmentFound && department!.Zone.Code == floor;
             var itemFound = items.TryGetValue(itemCode, out item);
@@ -114,9 +125,9 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
                 : null;
             var valid = fieldsValid && floorAllowed && itemConfigured;
             var splits = valid ? Enumerable.Range(0, (quantity + item!.MaxQtyPerSlot - 1) / item.MaxQtyPerSlot).Select(i => Math.Min(item.MaxQtyPerSlot, quantity - i * item.MaxQtyPerSlot)).ToArray() : [];
-            var (errorCode, errorMessage) = GetRowError(fieldsValid, departmentFound, floorAllowed, itemFound, itemConfigured, inputRow);
+            var (errorCode, errorMessage) = GetRowError(fieldsValid, requestCodeDuplicate, departmentFound, floorAllowed, itemFound, itemConfigured, inputRow);
             var snapshot = valid ? new ImportRowSnapshot(splits, item!.MaxQtyPerSlot, item.KgPerUnit!.Value, pickup!.Id, deadlineAt) : null;
-            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = inputRow.RequestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = priorityValid ? priority : null, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : errorCode, ErrorMessage = valid ? null : errorMessage, WarningMessage = parsedImport.IsCurrentTemplate ? null : "Mẫu Excel cũ; hãy tải mẫu RMMS-YC v3 mới trước lần import tiếp theo.", SplitQuantities = snapshot?.ToJson() ?? System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
+            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = requestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = priorityValid ? priority : null, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : errorCode, ErrorMessage = valid ? null : errorMessage, WarningMessage = parsedImport.IsCurrentTemplate ? null : "Mẫu Excel cũ; hãy tải mẫu RMMS-YC v3 mới trước lần import tiếp theo.", SplitQuantities = snapshot?.ToJson() ?? System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
         batch.TotalRows = rows.Count; batch.AcceptedRows = rows.Count(x => x.IsValid); batch.RejectedRows = batch.TotalRows - batch.AcceptedRows; batch.GeneratedMissions = rows.Sum(x => x.MissionsToCreate); db.Batches.Add(batch); db.BatchRows.AddRange(rows); await db.SaveChangesAsync(cancellationToken); return new ImportDraftResult(batch.Id, ImportResponseMapper.ToDetail(batch));
     }
 
@@ -182,8 +193,8 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
                 var pickup = item.MissionType.MissionTypePickupLocations.FirstOrDefault(x => x.ZoneId == zoneId && x.Location.IsActive)?.Location;
                 if (pickup is null || pickup.Id != snapshot.PickupLocationId || item.MaxQtyPerSlot != snapshot.MaxQtyPerSlot || item.KgPerUnit.Value != snapshot.KgPerUnit)
                     throw new InvalidOperationException("IMPORT_STALE");
-                var requestCode = string.IsNullOrWhiteSpace(row.RequestCode) ? $"YC-{Guid.NewGuid():N}"[..11].ToUpperInvariant() : row.RequestCode.Trim();
-                if (await db.Requests.AnyAsync(x => x.RequestCode == requestCode, cancellationToken)) throw new InvalidOperationException("REQUEST_CODE_DUPLICATE");
+                var requestCode = NormalizeRequestCode(row.RequestCode) ?? $"YC-{Guid.NewGuid():N}"[..11].ToUpperInvariant();
+                if (await db.Requests.AnyAsync(x => x.RequestCode.ToUpper() == requestCode, cancellationToken)) throw new InvalidOperationException("REQUEST_CODE_DUPLICATE");
                 var createdAt = DateTime.UtcNow;
                 var request = new RobotMissionMS.DataAccess.Entities.Request { Id = Guid.NewGuid(), RequestCode = requestCode, ZoneId = zoneId, BatchId = batch.Id, Source = BatchSource.Import, CreatedByUserId = userId, CreatedAt = createdAt, Note = row.Note };
                 db.Requests.Add(request); var slot = 0;
@@ -224,6 +235,8 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
     public async Task<ImportBatchResponse> ImportHospitalFileAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
     { await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken); var file = await db.HospitalFiles.SingleOrDefaultAsync(x => x.Id == id, cancellationToken) ?? throw new InvalidOperationException("HOSPITAL_FILE_NOT_FOUND"); if (file.ImportedBatchId != null) throw new InvalidOperationException("HOSPITAL_FILE_ALREADY_IMPORTED"); using var stream = new MemoryStream(file.Content, writable: false); var draft = await CreateDraftAsync(stream, file.FileName, userId, floor, cancellationToken); file.ImportedBatchId = draft.BatchId; file.ImportedAt = DateTime.UtcNow; file.ImportedByUserId = userId; await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return draft.Response; }
 
+    private static string? NormalizeRequestCode(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+
     private static bool IsValidRequestCode(string? value) => string.IsNullOrWhiteSpace(value) || RequestCodePattern.IsMatch(value);
 
     private static bool TryParsePriority(string? value, out MissionPriority priority)
@@ -240,9 +253,10 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
 
     private static bool SetPriority(MissionPriority value, out MissionPriority priority) { priority = value; return true; }
 
-    private static (string Code, string Message) GetRowError(bool fieldsValid, bool departmentFound, bool floorAllowed,
+    private static (string Code, string Message) GetRowError(bool fieldsValid, bool requestCodeDuplicate, bool departmentFound, bool floorAllowed,
         bool itemFound, bool itemConfigured, ExcelImportRow row)
     {
+        if (requestCodeDuplicate) return ("REQUEST_CODE_DUPLICATE", "Mã yêu cầu đã trùng trong file hoặc đã tồn tại trong hệ thống.");
         if (!fieldsValid) return ("C1", "Dữ liệu dòng không hợp lệ: mã yêu cầu, khoa, mã hàng, số lượng, ưu tiên, hạn giao hoặc ghi chú.");
         if (!departmentFound) return ("C1", "Khoa nhận không tồn tại hoặc không còn hoạt động.");
         if (!floorAllowed) return ("FLOOR_FORBIDDEN", "Operator tầng hiện tại không được nhập dòng của khoa này.");

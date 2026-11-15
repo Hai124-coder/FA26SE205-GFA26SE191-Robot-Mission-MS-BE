@@ -227,7 +227,7 @@ Màn SC-10 Tạo nhiệm vụ. Import đi theo 2 bước: tải lên để kiể
 | POST | /requests | Operator | Tạo đơn lẻ. Trả mã yêu cầu YC-xxxx và các nhiệm vụ đã tạo (PENDING) |
 | GET | /requests/{requestCode} | Tất cả | Một yêu cầu và mọi nhiệm vụ tách từ nó |
 | GET | /imports/template | Operator | Tải file mẫu .xlsx “RMMS-YC v3” sinh từ danh mục hiện tại (sheet YeuCau, DanhMuc, _RMMS) |
-| POST | /imports | Operator | multipart/form-data, field file (.xlsx). Đọc và kiểm tra từng dòng, lưu lô ở trạng thái DRAFT. File phải có sheet `YeuCau`, `DanhMuc`, `_RMMS`, metadata `maxRows = 600`, và không quá 600 dòng có dữ liệu. Với Operator, dòng của khoa ở tầng khác bị loại, lý do “Operator tầng X nhập dòng này”. Trả bảng dòng: hợp lệ không, lý do (C1, C3), cách chia ngăn; mẫu `RMMS-YC` cũ trả cảnh báo |
+| POST | /imports | Operator | multipart/form-data, field file (.xlsx), tối đa 10 MiB. Đọc và kiểm tra từng dòng, lưu lô ở trạng thái DRAFT. File phải có sheet `YeuCau`, `DanhMuc`, `_RMMS`, metadata `maxRows = 600`, và 1–600 dòng có dữ liệu. Với Operator, dòng của khoa ở tầng khác bị loại, lý do “Operator tầng X nhập dòng này”. Mã yêu cầu được chuẩn hóa thành chữ hoa và dòng trùng trong file hoặc với mã đã có bị loại với `REQUEST_CODE_DUPLICATE`. Trả bảng dòng: hợp lệ không, lý do (C1, C3), cách chia ngăn; mẫu `RMMS-YC` cũ trả cảnh báo |
 | GET | /imports/{importId} | Operator, Supervisor | Chi tiết một lô import |
 | POST | /imports/{importId}/commit | Operator | Tạo nhiệm vụ từ các dòng hợp lệ; lô thành COMMITTED, ghi số dòng nhận, loại, số nhiệm vụ sinh ra |
 | DELETE | /imports/{importId} | Operator | Bỏ lô đang DRAFT |
