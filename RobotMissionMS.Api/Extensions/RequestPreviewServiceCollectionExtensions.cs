@@ -9,7 +9,9 @@ public static class RequestPreviewServiceCollectionExtensions
     public static IServiceCollection AddRequestPreviewServices(this IServiceCollection services)
     {
         services.AddScoped<IRequestPreviewRepository, RequestPreviewRepository>();
+        services.AddScoped<RequestValidationService>();
         services.AddScoped<IRequestPreviewService, RequestPreviewService>();
+        services.AddScoped<IRequestService, RequestService>();
         return services;
     }
 }
