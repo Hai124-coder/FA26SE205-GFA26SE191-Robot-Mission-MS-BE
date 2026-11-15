@@ -7,6 +7,7 @@ public static class TaskServiceCollectionExtensions
     public static IServiceCollection AddTaskServices(this IServiceCollection services)
     {
         services.AddScoped<ITaskReadService, TaskReadService>();
+        services.AddScoped<ITaskCommandService, TaskCommandService>();
         return services;
     }
 }

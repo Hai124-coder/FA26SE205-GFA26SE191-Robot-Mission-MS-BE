@@ -18,6 +18,32 @@ public sealed class TaskListQuery
     [StringLength(100)] public string? Q { get; init; }
 }
 
+public sealed class TaskQueueQuery
+{
+    [StringLength(50)] public string? Floor { get; init; }
+    [StringLength(50)] public string? Type { get; init; }
+}
+
+public sealed class TaskQueueItemResponse
+{
+    public required Guid Id { get; init; }
+    public required string MissionCode { get; init; }
+    public string? RequestCode { get; init; }
+    public required string Floor { get; init; }
+    public required string MissionType { get; init; }
+    public string? Department { get; init; }
+    public required string Status { get; init; }
+    public required string Priority { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? DeadlineAt { get; init; }
+    public required bool IsOverdue { get; init; }
+    public required int PriorityScore { get; init; }
+    public required int PriorityPoints { get; init; }
+    public required int DeadlinePoints { get; init; }
+    public required int WaitPoints { get; init; }
+    public required int RedeliveryPoints { get; init; }
+}
+
 public class TaskListItemResponse
 {
     public required Guid Id { get; init; }

@@ -8,8 +8,9 @@ using RobotMissionMS.DataAccess.Persistence;
 
 namespace RobotMissionMS.Business.Features.Tasks.Services;
 
-public sealed class TaskReadService(RobotMissionDbContext db) : ITaskReadService
+public sealed class TaskReadService(RobotMissionDbContext db, TimeProvider? timeProvider = null) : ITaskReadService
 {
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     public async Task<TaskListResult> GetTasksAsync(TaskListQuery query, string? operatorFloor, CancellationToken cancellationToken = default)
     {
         if (!IsValid(query) || !TryParseStatuses(query.Status, out var statuses)) return TaskListResult.Failure(TaskReadError.InvalidQuery);
@@ -19,6 +20,23 @@ public sealed class TaskReadService(RobotMissionDbContext db) : ITaskReadService
         var entities = await missions.Include(m => m.MissionType).Include(m => m.Zone).Include(m => m.ToLocation).Include(m => m.Trip).ThenInclude(t => t!.Robot)
             .OrderByDescending(m => m.CreatedAt).ThenBy(m => m.MissionCode).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToListAsync(cancellationToken);
         return TaskListResult.Success(new PagedResponse<TaskListItemResponse> { Items = entities.Select(ToListItem).ToList(), Page = query.Page, PageSize = query.PageSize, Total = total });
+    }
+
+    public async Task<TaskQueueResult> GetQueueAsync(TaskQueueQuery query, string? operatorFloor, CancellationToken cancellationToken = default)
+    {
+        if (!Validator.TryValidateObject(query, new ValidationContext(query), null, true)) return TaskQueueResult.Failure(TaskReadError.InvalidQuery);
+        var floor = operatorFloor ?? Normalize(query.Floor);
+        var settings = await db.SystemSettings.AsNoTracking().Where(setting => QueueSettingKeys.All.Contains(setting.Key))
+            .ToDictionaryAsync(setting => setting.Key, setting => setting.Value, StringComparer.Ordinal, cancellationToken);
+        if (!TryReadQueueSettings(settings, out var config)) return TaskQueueResult.Failure(TaskReadError.InvalidQuery);
+        var statuses = new[] { MissionStatus.Pending, MissionStatus.Rescheduled };
+        var missions = db.Missions.AsNoTracking().Include(m => m.Zone).Include(m => m.MissionType).Include(m => m.ToLocation)
+            .Where(m => statuses.Contains(m.Status));
+        if (floor is not null) missions = missions.Where(m => m.Zone.Code == floor);
+        if (Normalize(query.Type) is { } type) missions = missions.Where(m => m.MissionType.Code == type);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var rows = await missions.ToListAsync(cancellationToken);
+        return TaskQueueResult.Success(rows.Select(m => ToQueueItem(m, config, now)).OrderByDescending(item => item.PriorityScore).ThenBy(item => item.CreatedAt).ThenBy(item => item.MissionCode).ToList());
     }
 
     public async Task<TaskDetailResult> GetTaskAsync(Guid id, string? operatorFloor, CancellationToken cancellationToken = default)
@@ -69,6 +87,36 @@ public sealed class TaskReadService(RobotMissionDbContext db) : ITaskReadService
     }
 
     private static bool IsValid(TaskListQuery q) => Validator.TryValidateObject(q, new ValidationContext(q), null, true) && (!q.From.HasValue || !q.To.HasValue || q.From <= q.To);
+    private static TaskQueueItemResponse ToQueueItem(Mission mission, QueueSettings config, DateTime now)
+    {
+        var priorityPoints = mission.Priority switch { MissionPriority.Normal => config.NormalPriority, MissionPriority.High => config.HighPriority, MissionPriority.Urgent => config.UrgentPriority, _ => 0 };
+        var deadlinePoints = 0;
+        if (mission.DeadlineAt is { } deadline)
+        {
+            var minutes = (deadline - now).TotalMinutes;
+            deadlinePoints = minutes <= 30 ? 25 : minutes <= 60 ? 15 : minutes <= 120 ? 5 : 0;
+        }
+        var waitedMinutes = Math.Max(0, (now - mission.CreatedAt).TotalMinutes);
+        var waitPoints = Math.Min(config.MaxWaitBonus, (int)Math.Floor(waitedMinutes / config.WaitStepMinutes));
+        var redeliveryPoints = mission.Status == MissionStatus.Rescheduled ? config.RedeliveryBonus : 0;
+        return new TaskQueueItemResponse { Id = mission.Id, MissionCode = mission.MissionCode, RequestCode = mission.RequestCode, Floor = mission.Zone.Code, MissionType = mission.MissionType.Code,
+            Department = mission.ToLocation?.Code, Status = Code(mission.Status), Priority = Code(mission.Priority), CreatedAt = new DateTimeOffset(mission.CreatedAt), DeadlineAt = Offset(mission.DeadlineAt),
+            IsOverdue = mission.DeadlineAt is { } value && value < now, PriorityPoints = priorityPoints, DeadlinePoints = deadlinePoints, WaitPoints = waitPoints, RedeliveryPoints = redeliveryPoints,
+            PriorityScore = priorityPoints + deadlinePoints + waitPoints + redeliveryPoints };
+    }
+    private static bool TryReadQueueSettings(IReadOnlyDictionary<string, string> values, out QueueSettings config)
+    {
+        config = default;
+        if (!TryInt(values, QueueSettingKeys.Normal, out var normal) || !TryInt(values, QueueSettingKeys.High, out var high) || !TryInt(values, QueueSettingKeys.Urgent, out var urgent)
+            || !TryInt(values, QueueSettingKeys.WaitStep, out var step) || !TryInt(values, QueueSettingKeys.MaxWait, out var max) || !TryInt(values, QueueSettingKeys.Redelivery, out var redelivery)
+            || step <= 0 || max < 0 || normal < 0 || high < normal || urgent < high || redelivery < 0) return false;
+        config = new QueueSettings(normal, high, urgent, step, max, redelivery); return true;
+    }
+    private static bool TryInt(IReadOnlyDictionary<string, string> values, string key, out int value)
+    {
+        value = 0;
+        return values.TryGetValue(key, out var text) && int.TryParse(text, out value);
+    }
     private static bool TryParseStatuses(string? input, out IReadOnlyList<MissionStatus>? statuses)
     {
         statuses = null; if (string.IsNullOrWhiteSpace(input)) return true;
@@ -81,4 +129,11 @@ public sealed class TaskReadService(RobotMissionDbContext db) : ITaskReadService
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static DateTimeOffset? Offset(DateTime? value) => value is null ? null : new DateTimeOffset(value.Value);
     private static string Code<T>(T value) where T : struct, Enum => value.ToString().ToUpperInvariant();
+
+    private readonly record struct QueueSettings(int NormalPriority, int HighPriority, int UrgentPriority, int WaitStepMinutes, int MaxWaitBonus, int RedeliveryBonus);
+    private static class QueueSettingKeys
+    {
+        internal const string Normal = "Queue.NormalPriority", High = "Queue.HighPriority", Urgent = "Queue.UrgentPriority", WaitStep = "Queue.WaitStepMinutes", MaxWait = "Queue.MaxWaitBonus", Redelivery = "Queue.RedeliveryBonus";
+        internal static readonly string[] All = [Normal, High, Urgent, WaitStep, MaxWait, Redelivery];
+    }
 }

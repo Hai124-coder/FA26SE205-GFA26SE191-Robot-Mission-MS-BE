@@ -6,6 +6,7 @@ namespace RobotMissionMS.Business.Features.Tasks.Services;
 public interface ITaskReadService
 {
     Task<TaskListResult> GetTasksAsync(TaskListQuery query, string? operatorFloor, CancellationToken cancellationToken = default);
+    Task<TaskQueueResult> GetQueueAsync(TaskQueueQuery query, string? operatorFloor, CancellationToken cancellationToken = default);
     Task<TaskDetailResult> GetTaskAsync(Guid id, string? operatorFloor, CancellationToken cancellationToken = default);
     Task<TaskTimelineResult> GetTimelineAsync(Guid id, string? operatorFloor, CancellationToken cancellationToken = default);
 }
@@ -28,6 +29,16 @@ public sealed class TaskDetailResult
     public bool IsSuccess => Response is not null;
     public static TaskDetailResult Success(TaskDetailResponse response) => new(response, null);
     public static TaskDetailResult Failure(TaskReadError error) => new(null, error);
+}
+
+public sealed class TaskQueueResult
+{
+    private TaskQueueResult(IReadOnlyList<TaskQueueItemResponse>? response, TaskReadError? error) { Response = response; Error = error; }
+    public IReadOnlyList<TaskQueueItemResponse>? Response { get; }
+    public TaskReadError? Error { get; }
+    public bool IsSuccess => Response is not null;
+    public static TaskQueueResult Success(IReadOnlyList<TaskQueueItemResponse> response) => new(response, null);
+    public static TaskQueueResult Failure(TaskReadError error) => new(null, error);
 }
 
 public sealed class TaskTimelineResult

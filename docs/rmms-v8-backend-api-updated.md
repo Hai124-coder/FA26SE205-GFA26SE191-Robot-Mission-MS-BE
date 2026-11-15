@@ -304,6 +304,12 @@ Trường actions trong kết quả GET /tasks/{id} liệt kê thao tác đượ
 
 `GET /tasks/{id}/timeline` luôn có mốc `CREATED` từ thời điểm tạo nhiệm vụ, sau đó trả các chuyển trạng thái đã được ghi trong `MissionStatusHistory`. API không tự suy diễn các mốc robot lên hàng, đến khoa hoặc cảm biến báo trống khi hệ thống chưa ghi sự kiện đó.
 
+`GET /tasks/queue` chỉ trả `PENDING` và `RESCHEDULED`. Mỗi dòng có `priorityPoints`, `deadlinePoints`, `waitPoints`, `redeliveryPoints`, `priorityScore`, `deadlineAt` và `isOverdue`. Điểm lấy từ cấu hình Queue hiện hành: hạn ≤30/60/120 phút lần lượt +25/+15/+5; chờ +1 mỗi chu kỳ cấu hình, tối đa theo cấu hình; `RESCHEDULED` cộng điểm giao lại theo cấu hình. Kết quả xếp tổng điểm giảm dần, rồi thời điểm tạo tăng dần. API chưa trả dự báo trễ vì cần thời gian dự kiến từ điều phối ở phần 8.
+
+`PUT /tasks/{id}` chỉ sửa được nhiệm vụ `PENDING` hoặc `RESCHEDULED`. Gửi tối thiểu một trong `quantity`, `priority`, `deadline` (định dạng `HH:mm`) hoặc `note`; khi đổi số lượng, hệ thống kiểm tra món còn hoạt động, khối lượng đơn vị và sức chứa ngăn. `POST /tasks/{id}/cancel` yêu cầu `reason`; nhiệm vụ `DELIVERY_FAILED` chỉ được huỷ sau khi có nhật ký `MISSION_CARGO_RETURNED` cho đúng nhiệm vụ. `POST /tasks/{id}/redeliver` cũng yêu cầu nhật ký này trước khi chuyển sang `RESCHEDULED`.
+
+Ba thao tác ghi khóa dòng nhiệm vụ trong transaction, ghi `MissionStatusHistory` cho các chuyển trạng thái và `ActivityLog` cho thao tác. Các lỗi nghiệp vụ trả lần lượt `TASK_NOT_PENDING`, `TASK_CARGO_NOT_RETURNED` hoặc `TASK_ITEM_CONFIGURATION_INVALID` với HTTP 409; không tìm thấy và sai tầng trả `TASK_NOT_FOUND` (404) và `FLOOR_FORBIDDEN` (403).
+
 
 ## 8. Điều phối (kế hoạch) và chuyến
 
