@@ -12,6 +12,7 @@ public interface IImportTemplateService
     Task<object?> GetAsync(Guid id, string? floor, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
     Task<object> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default);
+    Task<object> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
 }
 
 public sealed class ImportTemplateService(RobotMissionDbContext db) : IImportTemplateService
@@ -113,4 +114,6 @@ public sealed class ImportTemplateService(RobotMissionDbContext db) : IImportTem
         await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
         return new { importId = batch.Id, status = "COMMITTED", acceptedRows = validRows.Count, rejectedRows = batch.RejectedRows, generatedMissions = batch.GeneratedMissions };
     }
+    public async Task<object> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
+    { var query = db.Batches.AsNoTracking().AsQueryable(); if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.BatchRows.Any(row => row.Zone != null && row.Zone.Code == floor)); if (from.HasValue) query = query.Where(x => x.CreatedAt >= from); if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1)); if (Enum.TryParse<BatchStatus>(status, true, out var parsed)) query = query.Where(x => x.Status == parsed); var rows = await query.OrderByDescending(x => x.CreatedAt).Select(x => new { importId = x.Id, x.BatchCode, x.FileName, status = x.Status, x.TemplateVersion, totalRows = x.TotalRows, validRows = x.AcceptedRows, invalidRows = x.RejectedRows, tasksToCreate = x.GeneratedMissions, x.CreatedAt }).ToListAsync(cancellationToken); return rows.Select(x => new { x.importId, x.BatchCode, x.FileName, status = x.status.ToString().ToUpperInvariant(), x.TemplateVersion, x.totalRows, x.validRows, x.invalidRows, x.tasksToCreate, x.CreatedAt }); }
 }

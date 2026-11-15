@@ -12,6 +12,10 @@ namespace RobotMissionMS.Api.Controllers;
 [Authorize]
 public sealed class ImportsController(IImportTemplateService templateService) : ControllerBase
 {
+    [HttpGet]
+    [Authorize(Policy = AuthPolicies.OperationsRead)]
+    public async Task<IActionResult> List([FromQuery] string? status, [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken cancellationToken)
+        => Ok(await templateService.ListAsync(User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null, status, from, to, cancellationToken));
     [HttpGet("template")]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
     [Produces("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
