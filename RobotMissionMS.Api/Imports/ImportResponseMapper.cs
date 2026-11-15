@@ -18,6 +18,6 @@ public static class ImportResponseMapper
         RowNo = row.RowNo, RequestCode = row.RequestCode, Department = row.DepartmentCode, ItemCode = row.ItemCode,
         Quantity = row.Quantity, Priority = row.Priority?.ToString().ToUpperInvariant(), Deadline = row.DeadlineText,
         Note = row.Note, Warning = row.WarningMessage, Valid = row.IsValid, ErrorCode = row.ErrorCode, Error = row.ErrorMessage,
-        Split = System.Text.Json.JsonSerializer.Deserialize<int[]>(row.SplitQuantities) ?? []
+        Split = ImportRowSnapshot.ReadQuantities(row.SplitQuantities)
     };
 }

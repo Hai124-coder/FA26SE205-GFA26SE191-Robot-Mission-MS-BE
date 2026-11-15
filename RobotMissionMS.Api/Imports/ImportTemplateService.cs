@@ -3,6 +3,7 @@ using System.Data;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 
@@ -101,17 +102,21 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
         var rows = new List<RobotMissionMS.DataAccess.Entities.BatchRow>();
         foreach (var inputRow in inputRows) { var rowNo = inputRow.RowNo; var departmentCode = inputRow.DepartmentCode; var itemCode = inputRow.ItemCode; var quantityText = inputRow.QuantityText; RobotMissionMS.DataAccess.Entities.Location? department = null; RobotMissionMS.DataAccess.Entities.Item? item = null;
             var quantity = 0; var priorityValid = TryParsePriority(inputRow.PriorityText, out var priority);
-            var deadlineValid = string.IsNullOrWhiteSpace(inputRow.DeadlineText) || TimeOnly.TryParseExact(inputRow.DeadlineText, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+            var deadlineValid = ImportDeadline.TryGetUtc(inputRow.DeadlineText, out var deadlineAt);
             var fieldsValid = IsValidRequestCode(inputRow.RequestCode) && departmentCode.Length is > 0 and <= 50 && itemCode.Length is > 0 and <= 50 && inputRow.Note?.Length <= 1000 && priorityValid && deadlineValid && int.TryParse(quantityText, out quantity) && quantity is >= 1 and <= 600;
             var departmentFound = departments.TryGetValue(departmentCode, out department);
             var floorAllowed = departmentFound && department!.Zone.Code == floor;
             var itemFound = items.TryGetValue(itemCode, out item);
             var itemConfigured = itemFound && departmentFound && item!.KgPerUnit is > 0 && item.MaxQtyPerSlot > 0
                 && item.MissionType.MissionTypePickupLocations.Any(x => x.ZoneId == department!.ZoneId && x.Location.IsActive);
+            var pickup = itemConfigured
+                ? item!.MissionType.MissionTypePickupLocations.First(x => x.ZoneId == department!.ZoneId && x.Location.IsActive).Location
+                : null;
             var valid = fieldsValid && floorAllowed && itemConfigured;
             var splits = valid ? Enumerable.Range(0, (quantity + item!.MaxQtyPerSlot - 1) / item.MaxQtyPerSlot).Select(i => Math.Min(item.MaxQtyPerSlot, quantity - i * item.MaxQtyPerSlot)).ToArray() : [];
             var (errorCode, errorMessage) = GetRowError(fieldsValid, departmentFound, floorAllowed, itemFound, itemConfigured, inputRow);
-            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = inputRow.RequestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = priorityValid ? priority : null, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : errorCode, ErrorMessage = valid ? null : errorMessage, WarningMessage = parsedImport.IsCurrentTemplate ? null : "Mẫu Excel cũ; hãy tải mẫu RMMS-YC v3 mới trước lần import tiếp theo.", SplitQuantities = System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
+            var snapshot = valid ? new ImportRowSnapshot(splits, item!.MaxQtyPerSlot, item.KgPerUnit!.Value, pickup!.Id, deadlineAt) : null;
+            rows.Add(new RobotMissionMS.DataAccess.Entities.BatchRow { Id = Guid.NewGuid(), BatchId = batch.Id, RowNo = rowNo, RequestCode = inputRow.RequestCode, DepartmentCode = departmentCode, ItemCode = itemCode, Quantity = int.TryParse(quantityText, out var q) ? q : null, Priority = priorityValid ? priority : null, DeadlineText = inputRow.DeadlineText, Note = inputRow.Note, ZoneId = valid ? department!.ZoneId : null, DepartmentLocationId = valid ? department!.Id : null, ItemId = valid ? item!.Id : null, MissionTypeId = valid ? item!.MissionTypeId : null, IsValid = valid, ErrorCode = valid ? null : errorCode, ErrorMessage = valid ? null : errorMessage, WarningMessage = parsedImport.IsCurrentTemplate ? null : "Mẫu Excel cũ; hãy tải mẫu RMMS-YC v3 mới trước lần import tiếp theo.", SplitQuantities = snapshot?.ToJson() ?? System.Text.Json.JsonSerializer.Serialize(splits), MissionsToCreate = splits.Length, CreatedAt = now, UpdatedAt = now }); }
         batch.TotalRows = rows.Count; batch.AcceptedRows = rows.Count(x => x.IsValid); batch.RejectedRows = batch.TotalRows - batch.AcceptedRows; batch.GeneratedMissions = rows.Sum(x => x.MissionsToCreate); db.Batches.Add(batch); db.BatchRows.AddRange(rows); await db.SaveChangesAsync(cancellationToken); return new ImportDraftResult(batch.Id, ImportResponseMapper.ToDetail(batch));
     }
 
@@ -128,29 +133,57 @@ public sealed class ImportTemplateService(RobotMissionDbContext db, IExcelImport
     public async Task<ImportCommitResponse> CommitAsync(Guid id, Guid userId, string floor, CancellationToken cancellationToken = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var batch = await db.Batches.Include(x => x.BatchRows).SingleOrDefaultAsync(x => x.Id == id, cancellationToken) ?? throw new InvalidOperationException("IMPORT_NOT_FOUND");
-        if (batch.Status != BatchStatus.Draft) throw new InvalidOperationException("IMPORT_ALREADY_COMMITTED");
-        if (batch.CreatedByUserId != userId) throw new InvalidOperationException("IMPORT_FORBIDDEN");
-        var zoneId = await db.Zones.Where(x => x.Code == floor && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("FLOORS_INACTIVE");
-        var validRows = batch.BatchRows.Where(x => x.IsValid).OrderBy(x => x.RowNo).ToList();
-        foreach (var row in validRows)
+        try
         {
-            var item = await db.Items.Include(x => x.MissionType).ThenInclude(x => x.MissionTypePickupLocations).ThenInclude(x => x.Location)
-                .SingleOrDefaultAsync(x => x.Id == row.ItemId && x.IsActive && x.MissionType.IsActive && x.MissionType.Mode == MissionMode.Batch, cancellationToken);
-            var department = await db.Locations.SingleOrDefaultAsync(x => x.Id == row.DepartmentLocationId && x.IsActive && x.ZoneId == zoneId && x.Kind == LocationKind.Dept, cancellationToken);
-            if (item is null || department is null || item.KgPerUnit is not > 0 || item.MaxQtyPerSlot <= 0) throw new InvalidOperationException("IMPORT_STALE");
-            var pickup = item.MissionType.MissionTypePickupLocations.SingleOrDefault(x => x.ZoneId == zoneId && x.Location.IsActive)?.Location;
-            if (pickup is null) throw new InvalidOperationException("PICKUP_LOCATION_NOT_CONFIGURED");
-            var requestCode = string.IsNullOrWhiteSpace(row.RequestCode) ? $"YC-{Guid.NewGuid():N}"[..11].ToUpperInvariant() : row.RequestCode;
-            if (await db.Requests.AnyAsync(x => x.RequestCode == requestCode, cancellationToken)) throw new InvalidOperationException("REQUEST_CODE_DUPLICATE");
-            var request = new RobotMissionMS.DataAccess.Entities.Request { Id = Guid.NewGuid(), RequestCode = requestCode, ZoneId = zoneId, BatchId = batch.Id, Source = BatchSource.Import, CreatedByUserId = userId, CreatedAt = DateTime.UtcNow, Note = row.Note };
-            db.Requests.Add(request); var remaining = row.Quantity!.Value; var slot = 0;
-            while (remaining > 0) { var quantity = Math.Min(remaining, item.MaxQtyPerSlot); slot++; db.Missions.Add(new RobotMissionMS.DataAccess.Entities.Mission { Id = Guid.NewGuid(), MissionCode = $"NV-{requestCode[3..]}-{slot:D2}", MissionTypeId = item.MissionTypeId, ZoneId = zoneId, BatchId = batch.Id, RequestId = request.Id, RequestCode = requestCode, FromLocationId = pickup.Id, ToLocationId = department.Id, ItemId = item.Id, Quantity = quantity, SlotNo = slot, Priority = row.Priority ?? MissionPriority.Normal, Status = MissionStatus.Pending, CreatedByUserId = userId, CreatedAt = DateTime.UtcNow, ItemCodeSnapshot = item.Code, ItemNameSnapshot = item.Name, UnitSnapshot = item.Unit, PackagingSnapshot = item.Packaging, KgPerUnitSnapshot = item.KgPerUnit, WeightKgSnapshot = quantity * item.KgPerUnit.Value, Note = row.Note }); remaining -= quantity; }
+            var lockedBatch = await db.Batches
+                .FromSqlInterpolated($"""SELECT * FROM public."Batches" WHERE "Id" = {id} FOR UPDATE""")
+                .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("IMPORT_NOT_FOUND");
+            var batch = await db.Batches.Include(x => x.BatchRows).SingleAsync(x => x.Id == lockedBatch.Id, cancellationToken);
+            if (batch.Status != BatchStatus.Draft) throw new InvalidOperationException("IMPORT_ALREADY_COMMITTED");
+            if (batch.CreatedByUserId != userId) throw new InvalidOperationException("IMPORT_FORBIDDEN");
+            var zoneId = await db.Zones.Where(x => x.Code == floor && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("FLOORS_INACTIVE");
+            var validRows = batch.BatchRows.Where(x => x.IsValid).OrderBy(x => x.RowNo).ToList();
+            var suppliedCodes = validRows.Where(row => !string.IsNullOrWhiteSpace(row.RequestCode)).Select(row => row.RequestCode!.Trim());
+            if (suppliedCodes.GroupBy(code => code, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+                throw new InvalidOperationException("REQUEST_CODE_DUPLICATE");
+
+            var generatedMissions = 0;
+            foreach (var row in validRows)
+            {
+                if (!ImportRowSnapshot.TryRead(row.SplitQuantities, out var snapshot)
+                    || snapshot!.Quantities is null
+                    || snapshot.Quantities.Count == 0
+                    || snapshot.Quantities.Any(quantity => quantity <= 0 || quantity > snapshot.MaxQtyPerSlot)
+                    || snapshot.Quantities.Sum() != row.Quantity
+                    || snapshot.Quantities.Count != row.MissionsToCreate
+                    || !IsValidRequestCode(row.RequestCode)
+                    || row.Priority is null)
+                    throw new InvalidOperationException("IMPORT_STALE");
+                var item = await db.Items.Include(x => x.MissionType).ThenInclude(x => x.MissionTypePickupLocations).ThenInclude(x => x.Location)
+                    .SingleOrDefaultAsync(x => x.Id == row.ItemId && x.IsActive && x.MissionType.IsActive && x.MissionType.Mode == MissionMode.Batch, cancellationToken);
+                var department = await db.Locations.SingleOrDefaultAsync(x => x.Id == row.DepartmentLocationId && x.IsActive && x.ZoneId == zoneId && x.Kind == LocationKind.Dept, cancellationToken);
+                if (item is null || department is null || item.KgPerUnit is not > 0 || item.MaxQtyPerSlot <= 0) throw new InvalidOperationException("IMPORT_STALE");
+                var pickup = item.MissionType.MissionTypePickupLocations.FirstOrDefault(x => x.ZoneId == zoneId && x.Location.IsActive)?.Location;
+                if (pickup is null || pickup.Id != snapshot.PickupLocationId || item.MaxQtyPerSlot != snapshot.MaxQtyPerSlot || item.KgPerUnit.Value != snapshot.KgPerUnit)
+                    throw new InvalidOperationException("IMPORT_STALE");
+                var requestCode = string.IsNullOrWhiteSpace(row.RequestCode) ? $"YC-{Guid.NewGuid():N}"[..11].ToUpperInvariant() : row.RequestCode.Trim();
+                if (await db.Requests.AnyAsync(x => x.RequestCode == requestCode, cancellationToken)) throw new InvalidOperationException("REQUEST_CODE_DUPLICATE");
+                var createdAt = DateTime.UtcNow;
+                var request = new RobotMissionMS.DataAccess.Entities.Request { Id = Guid.NewGuid(), RequestCode = requestCode, ZoneId = zoneId, BatchId = batch.Id, Source = BatchSource.Import, CreatedByUserId = userId, CreatedAt = createdAt, Note = row.Note };
+                db.Requests.Add(request); var slot = 0;
+                foreach (var quantity in snapshot.Quantities) { slot++; generatedMissions++; db.Missions.Add(new RobotMissionMS.DataAccess.Entities.Mission { Id = Guid.NewGuid(), MissionCode = $"NV-{requestCode[3..]}-{slot:D2}", MissionTypeId = item.MissionTypeId, ZoneId = zoneId, BatchId = batch.Id, RequestId = request.Id, RequestCode = requestCode, FromLocationId = pickup.Id, ToLocationId = department.Id, ItemId = item.Id, Quantity = quantity, SlotNo = slot, Priority = row.Priority.Value, Status = MissionStatus.Pending, CreatedByUserId = userId, CreatedAt = createdAt, ItemCodeSnapshot = item.Code, ItemNameSnapshot = item.Name, UnitSnapshot = item.Unit, PackagingSnapshot = item.Packaging, KgPerUnitSnapshot = snapshot.KgPerUnit, WeightKgSnapshot = quantity * snapshot.KgPerUnit, DeadlineAt = snapshot.DeadlineAt, Note = row.Note }); }
+            }
+            batch.Status = BatchStatus.Committed; batch.CommittedAt = DateTime.UtcNow; batch.CommittedByUserId = userId; batch.UpdatedAt = DateTime.UtcNow; batch.GeneratedMissions = generatedMissions;
+            db.ActivityLogs.Add(new RobotMissionMS.DataAccess.Entities.ActivityLog { UserId = userId, Timestamp = DateTime.UtcNow, Action = "IMPORT_COMMITTED", TargetObject = $"Batch:{batch.Id:D}" });
+            await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
+            return new ImportCommitResponse { ImportId = batch.Id, Status = "COMMITTED", AcceptedRows = validRows.Count, RejectedRows = batch.RejectedRows, GeneratedMissions = batch.GeneratedMissions, CommittedAt = new DateTimeOffset(batch.CommittedAt!.Value) };
         }
-        batch.Status = BatchStatus.Committed; batch.CommittedAt = DateTime.UtcNow; batch.CommittedByUserId = userId; batch.UpdatedAt = DateTime.UtcNow; batch.GeneratedMissions = validRows.Sum(x => x.MissionsToCreate);
-        db.ActivityLogs.Add(new RobotMissionMS.DataAccess.Entities.ActivityLog { UserId = userId, Timestamp = DateTime.UtcNow, Action = "IMPORT_COMMITTED", TargetObject = $"Batch:{batch.Id:D}" });
-        await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
-        return new ImportCommitResponse { ImportId = batch.Id, Status = "COMMITTED", AcceptedRows = validRows.Count, RejectedRows = batch.RejectedRows, GeneratedMissions = batch.GeneratedMissions, CommittedAt = new DateTimeOffset(batch.CommittedAt!.Value) };
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+            { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "Requests_RequestCode_key" })
+        {
+            db.ChangeTracker.Clear();
+            throw new InvalidOperationException("REQUEST_CODE_DUPLICATE", exception);
+        }
     }
     public async Task<IReadOnlyList<ImportListItemResponse>> ListAsync(string? floor, string? status, DateTime? from, DateTime? to, CancellationToken cancellationToken = default)
     { var query = db.Batches.AsNoTracking().AsQueryable(); if (!string.IsNullOrWhiteSpace(floor)) query = query.Where(x => x.Zone != null && x.Zone.Code == floor); if (from.HasValue) query = query.Where(x => x.CreatedAt >= from); if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value.AddDays(1)); if (Enum.TryParse<BatchStatus>(status, true, out var parsed)) query = query.Where(x => x.Status == parsed); return await query.OrderByDescending(x => x.CreatedAt).Select(x => new ImportListItemResponse { ImportId = x.Id, BatchCode = x.BatchCode, FileName = x.FileName, Status = x.Status.ToString().ToUpperInvariant(), TotalRows = x.TotalRows, ValidRows = x.AcceptedRows, InvalidRows = x.RejectedRows, TasksToCreate = x.GeneratedMissions, CreatedAt = new DateTimeOffset(x.CreatedAt) }).ToListAsync(cancellationToken); }
