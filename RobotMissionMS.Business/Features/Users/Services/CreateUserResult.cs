@@ -25,5 +25,9 @@ public enum CreateUserError
 {
     InvalidRequest,
     UsernameAlreadyExists,
-    RoleNotFound
+    RoleNotFound,
+    OperatorFloorRequired,
+    NonOperatorFloorForbidden,
+    FloorNotFound,
+    FloorInactive
 }

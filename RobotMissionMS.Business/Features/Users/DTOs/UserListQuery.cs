@@ -13,6 +13,9 @@ public sealed class UserListQuery
     [StringLength(50)]
     public string? Role { get; init; }
 
+    [StringLength(20)]
+    public string? Floor { get; init; }
+
     public bool? Active { get; init; }
 
     /// <summary>

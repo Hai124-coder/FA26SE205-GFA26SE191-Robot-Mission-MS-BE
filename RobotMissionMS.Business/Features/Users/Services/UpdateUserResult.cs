@@ -25,5 +25,9 @@ public enum UpdateUserError
 {
     InvalidRequest,
     UserNotFound,
-    RoleNotFound
+    RoleNotFound,
+    OperatorFloorRequired,
+    NonOperatorFloorForbidden,
+    FloorNotFound,
+    FloorInactive
 }

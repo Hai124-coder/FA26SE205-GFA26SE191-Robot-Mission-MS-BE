@@ -12,6 +12,8 @@ public sealed class UserListItemResponse
 
     public required string Role { get; init; }
 
+    public string? Floor { get; init; }
+
     public required bool IsActive { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }

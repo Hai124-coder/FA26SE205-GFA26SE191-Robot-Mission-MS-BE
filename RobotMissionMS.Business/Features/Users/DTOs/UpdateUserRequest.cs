@@ -11,4 +11,7 @@ public sealed class UpdateUserRequest
     [Required]
     [StringLength(50)]
     public string Role { get; init; } = string.Empty;
+
+    [StringLength(20)]
+    public string? Floor { get; init; }
 }

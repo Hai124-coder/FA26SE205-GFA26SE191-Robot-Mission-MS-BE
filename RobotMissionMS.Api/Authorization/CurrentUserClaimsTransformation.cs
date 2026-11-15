@@ -18,7 +18,7 @@ public sealed class CurrentUserClaimsTransformation(RobotMissionDbContext db) : 
         if (!Guid.TryParse(subject, out var userId))
             return new ClaimsPrincipal(new ClaimsIdentity());
 
-        var user = await db.Users.AsNoTracking().Include(x => x.Role)
+        var user = await db.Users.AsNoTracking().Include(x => x.Role).Include(x => x.Zone)
             .SingleOrDefaultAsync(x => x.Id == userId);
         if (user is null || !user.IsActive || string.IsNullOrWhiteSpace(user.Role?.Name))
             return new ClaimsPrincipal(new ClaimsIdentity());
@@ -30,6 +30,10 @@ public sealed class CurrentUserClaimsTransformation(RobotMissionDbContext db) : 
         foreach (var claim in identity.Claims.Where(x => x.Type == identity.RoleClaimType).ToArray())
             identity.RemoveClaim(claim);
         identity.AddClaim(new Claim(identity.RoleClaimType, user.Role.Name));
+        const string floorClaimType = "rmms:floor";
+        foreach (var claim in identity.Claims.Where(x => x.Type == floorClaimType).ToArray()) identity.RemoveClaim(claim);
+        if (string.Equals(user.Role.Name, "OPERATOR", StringComparison.OrdinalIgnoreCase) && user.Zone?.Code is { } floor)
+            identity.AddClaim(new Claim(floorClaimType, floor));
         return principal;
     }
 }

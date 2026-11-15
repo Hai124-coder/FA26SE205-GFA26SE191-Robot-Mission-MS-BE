@@ -74,6 +74,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             FullName = user.FullName,
             Email = user.Email,
             Role = user.Role,
+            Floor = user.FloorCode,
             IsActive = request.Active.Value,
             CreatedAt = new DateTimeOffset(user.CreatedAt)
         });
@@ -96,10 +97,12 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
         var role = await repository.FindRoleByNameAsync(request.Role, cancellationToken);
         if (role is null)
             return UpdateUserResult.Failure(UpdateUserError.RoleNotFound);
+        var floorResult = await ResolveFloorAsync(role.Name, request.Floor, cancellationToken);
+        if (floorResult.Error is not null) return UpdateUserResult.Failure(floorResult.Error.Value);
 
         var updatedAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
         var dataResult = await repository.UpdateUserAsync(
-            userId, request.FullName, role.Id, updatedByUserId, updatedAt.UtcDateTime, cancellationToken);
+            userId, request.FullName, role.Id, floorResult.ZoneId, updatedByUserId, updatedAt.UtcDateTime, cancellationToken);
         if (!dataResult.IsSuccess)
         {
             return dataResult.Error switch
@@ -116,6 +119,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             FullName = request.FullName,
             Email = user.Email,
             Role = role.Name,
+            Floor = floorResult.FloorCode,
             IsActive = user.IsActive,
             CreatedAt = new DateTimeOffset(user.CreatedAt)
         });
@@ -139,6 +143,14 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
         var role = await repository.FindRoleByNameAsync(request.Role, cancellationToken);
         if (role is null)
             return CreateUserResult.Failure(CreateUserError.RoleNotFound);
+        var floorResult = await ResolveFloorAsync(role.Name, request.Floor, cancellationToken);
+        if (floorResult.Error is not null) return CreateUserResult.Failure(floorResult.Error.Value switch
+        {
+            UpdateUserError.OperatorFloorRequired => CreateUserError.OperatorFloorRequired,
+            UpdateUserError.NonOperatorFloorForbidden => CreateUserError.NonOperatorFloorForbidden,
+            UpdateUserError.FloorNotFound => CreateUserError.FloorNotFound,
+            _ => CreateUserError.FloorInactive
+        });
 
         var createdAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
         var id = Guid.NewGuid();
@@ -150,6 +162,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
                 request.FullName,
                 request.Email,
                 role.Id,
+                floorResult.ZoneId,
                 createdAt.UtcDateTime),
             createdByUserId,
             createdAt.UtcDateTime,
@@ -171,6 +184,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             FullName = request.FullName,
             Email = request.Email,
             Role = role.Name,
+            Floor = floorResult.FloorCode,
             IsActive = true,
             CreatedAt = createdAt
         });
@@ -187,6 +201,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             skip: (query.Page - 1) * query.PageSize,
             take: query.PageSize,
             role: query.Role,
+            floorCode: query.Floor,
             isActive: query.Active,
             cancellationToken);
 
@@ -199,6 +214,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
                 FullName = user.FullName,
                 Email = user.Email,
                 Role = user.Role,
+                Floor = user.FloorCode,
                 IsActive = user.IsActive,
                 CreatedAt = new DateTimeOffset(user.CreatedAt)
             }).ToList(),
@@ -212,5 +228,24 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
     {
         var utc = value.UtcDateTime;
         return new DateTimeOffset(new DateTime(utc.Ticks - utc.Ticks % 10, DateTimeKind.Utc));
+    }
+
+    private async Task<FloorResolution> ResolveFloorAsync(string role, string? floor, CancellationToken cancellationToken)
+    {
+        var hasFloor = !string.IsNullOrWhiteSpace(floor);
+        if (!string.Equals(role, "OPERATOR", StringComparison.OrdinalIgnoreCase))
+            return hasFloor ? FloorResolution.Failure(UpdateUserError.NonOperatorFloorForbidden) : FloorResolution.Success(null, null);
+        if (!hasFloor) return FloorResolution.Failure(UpdateUserError.OperatorFloorRequired);
+        var zone = await repository.FindZoneByCodeAsync(floor!.Trim(), cancellationToken);
+        if (zone is null) return FloorResolution.Failure(UpdateUserError.FloorNotFound);
+        return zone.IsActive
+            ? FloorResolution.Success(zone.Id, zone.Code)
+            : FloorResolution.Failure(UpdateUserError.FloorInactive);
+    }
+
+    private sealed record FloorResolution(Guid? ZoneId, string? FloorCode, UpdateUserError? Error)
+    {
+        public static FloorResolution Success(Guid? zoneId, string? floorCode) => new(zoneId, floorCode, null);
+        public static FloorResolution Failure(UpdateUserError error) => new(null, null, error);
     }
 }

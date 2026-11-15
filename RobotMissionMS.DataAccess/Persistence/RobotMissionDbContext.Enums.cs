@@ -10,8 +10,10 @@ public partial class RobotMissionDbContext
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Alert>().Property(e => e.Category).HasColumnType("alert_category");
-        modelBuilder.Entity<Alert>().Property(e => e.Severity).HasColumnType("alert_severity").HasDefaultValueSql("'WARNING'::alert_severity");
-        modelBuilder.Entity<Alert>().Property(e => e.Status).HasColumnType("alert_status").HasDefaultValueSql("'OPEN'::alert_status");
+        modelBuilder.Entity<Alert>().Property(e => e.Severity).HasColumnType("alert_severity").HasDefaultValueSql("'WARNING'::alert_severity")
+            .HasSentinel((AlertSeverity)(-1));
+        modelBuilder.Entity<Alert>().Property(e => e.Status).HasColumnType("alert_status").HasDefaultValueSql("'OPEN'::alert_status")
+            .HasSentinel((AlertStatus)(-1));
         modelBuilder.Entity<Batch>().Property(e => e.Source).HasColumnType("batch_source").HasDefaultValueSql("'IMPORT'::batch_source");
         modelBuilder.Entity<Batch>().Property(e => e.Status).HasColumnType("batch_status").HasDefaultValueSql("'DRAFT'::batch_status");
         modelBuilder.Entity<Request>().Property(e => e.Source).HasColumnType("batch_source");

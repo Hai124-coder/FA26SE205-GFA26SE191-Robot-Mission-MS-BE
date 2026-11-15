@@ -21,13 +21,19 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
         db.Users.AsNoTracking()
             .Where(user => user.Id == userId)
             .Select(user => new UserListRow(
-                user.Id, user.Username, user.FullName, user.Email, user.Role.Name, user.IsActive, user.CreatedAt))
+                user.Id, user.Username, user.FullName, user.Email, user.Role.Name, user.Zone == null ? null : user.Zone.Code,
+                user.IsActive, user.CreatedAt))
             .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<ZoneRecord?> FindZoneByCodeAsync(string zoneCode, CancellationToken cancellationToken = default) =>
+        db.Zones.AsNoTracking().Where(zone => zone.Code == zoneCode)
+            .Select(zone => new ZoneRecord(zone.Id, zone.Code, zone.IsActive)).SingleOrDefaultAsync(cancellationToken);
 
     public async Task<UserListPage> GetUsersAsync(
         int skip,
         int take,
         string? role,
+        string? floorCode,
         bool? isActive,
         CancellationToken cancellationToken = default)
     {
@@ -35,6 +41,8 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
 
         if (!string.IsNullOrWhiteSpace(role))
             query = query.Where(user => user.Role.Name == role);
+        if (!string.IsNullOrWhiteSpace(floorCode))
+            query = query.Where(user => user.Zone != null && user.Zone.Code == floorCode);
         if (isActive.HasValue)
             query = query.Where(user => user.IsActive == isActive.Value);
 
@@ -50,6 +58,7 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
                 user.FullName,
                 user.Email,
                 user.Role.Name,
+                user.Zone == null ? null : user.Zone.Code,
                 user.IsActive,
                 user.CreatedAt))
             .ToListAsync(cancellationToken);
@@ -76,6 +85,7 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             Email = user.Email,
             IsActive = true,
             RoleId = user.RoleId,
+            ZoneId = user.ZoneId,
             CreatedAt = user.CreatedAt
         });
         db.ActivityLogs.Add(new ActivityLog
@@ -105,6 +115,7 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
         Guid userId,
         string fullName,
         Guid roleId,
+        Guid? zoneId,
         Guid updatedByUserId,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken = default)
@@ -116,7 +127,8 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
         var updated = await db.Users.Where(user => user.Id == userId)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.FullName, fullName)
-                .SetProperty(user => user.RoleId, roleId), cancellationToken);
+                .SetProperty(user => user.RoleId, roleId)
+                .SetProperty(user => user.ZoneId, zoneId), cancellationToken);
         if (updated == 0)
             return UserUpdateDataResult.Failure(UserUpdateDataError.UserNotFound);
 

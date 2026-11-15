@@ -70,7 +70,8 @@ public sealed class AuthService(
                 Id = user.Id,
                 Username = user.Username,
                 FullName = user.FullName,
-                Role = user.Role.Name
+                Role = user.Role.Name,
+                Floor = user.Zone?.Code
             }
         };
 
@@ -165,7 +166,8 @@ public sealed class AuthService(
                 Id = user.Id,
                 Username = user.Username,
                 FullName = user.FullName,
-                Role = user.Role.Name
+                Role = user.Role.Name,
+                Floor = user.Zone?.Code
             }
         });
     }
@@ -220,6 +222,7 @@ public sealed class AuthService(
             Username = user.Username,
             FullName = user.FullName,
             Role = user.Role.Name,
+            Floor = user.Zone?.Code,
             Screens = access.Screens,
             ReadOnlyScreens = access.ReadOnlyScreens
         };

@@ -107,6 +107,10 @@ public sealed class UsersController(IUserService userService) : ControllerBase
                 type: "USERS_ROLE_NOT_FOUND",
                 title: "The requested role does not exist.",
                 statusCode: StatusCodes.Status400BadRequest),
+            UpdateUserError.OperatorFloorRequired => Problem(type: "USERS_OPERATOR_FLOOR_REQUIRED", title: "An Operator must have a floor.", statusCode: 400),
+            UpdateUserError.NonOperatorFloorForbidden => Problem(type: "USERS_NON_OPERATOR_FLOOR_FORBIDDEN", title: "Only an Operator can have a floor.", statusCode: 400),
+            UpdateUserError.FloorNotFound => Problem(type: "FLOORS_NOT_FOUND", title: "The floor was not found.", statusCode: 400),
+            UpdateUserError.FloorInactive => Problem(type: "FLOORS_INACTIVE", title: "The floor is inactive.", statusCode: 409),
             _ => throw new InvalidOperationException("User service returned an invalid update result.")
         };
     }
@@ -143,6 +147,10 @@ public sealed class UsersController(IUserService userService) : ControllerBase
                 type: "USERS_ROLE_NOT_FOUND",
                 title: "The requested role does not exist.",
                 statusCode: StatusCodes.Status400BadRequest),
+            CreateUserError.OperatorFloorRequired => Problem(type: "USERS_OPERATOR_FLOOR_REQUIRED", title: "An Operator must have a floor.", statusCode: 400),
+            CreateUserError.NonOperatorFloorForbidden => Problem(type: "USERS_NON_OPERATOR_FLOOR_FORBIDDEN", title: "Only an Operator can have a floor.", statusCode: 400),
+            CreateUserError.FloorNotFound => Problem(type: "FLOORS_NOT_FOUND", title: "The floor was not found.", statusCode: 400),
+            CreateUserError.FloorInactive => Problem(type: "FLOORS_INACTIVE", title: "The floor is inactive.", statusCode: 409),
             _ => throw new InvalidOperationException("User service returned an invalid create result.")
         };
     }

@@ -10,11 +10,13 @@ public interface IUserRepository
         int skip,
         int take,
         string? role,
+        string? floorCode,
         bool? isActive,
         CancellationToken cancellationToken = default);
 
     Task<bool> UsernameExistsAsync(string username, CancellationToken cancellationToken = default);
     Task<RoleRecord?> FindRoleByNameAsync(string roleName, CancellationToken cancellationToken = default);
+    Task<ZoneRecord?> FindZoneByCodeAsync(string zoneCode, CancellationToken cancellationToken = default);
     Task<UserListRow?> FindUserByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -35,6 +37,7 @@ public interface IUserRepository
         Guid userId,
         string fullName,
         Guid roleId,
+        Guid? zoneId,
         Guid updatedByUserId,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
@@ -70,10 +73,12 @@ public sealed record UserListRow(
     string FullName,
     string? Email,
     string Role,
+    string? FloorCode,
     bool IsActive,
     DateTime CreatedAt);
 
 public sealed record RoleRecord(Guid Id, string Name);
+public sealed record ZoneRecord(Guid Id, string Code, bool IsActive);
 
 public sealed record UserCreateRecord(
     Guid Id,
@@ -82,6 +87,7 @@ public sealed record UserCreateRecord(
     string FullName,
     string? Email,
     Guid RoleId,
+    Guid? ZoneId,
     DateTime CreatedAt);
 
 public enum UserCreateDataError

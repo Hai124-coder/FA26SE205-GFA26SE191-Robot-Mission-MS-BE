@@ -9,4 +9,6 @@ public class AuthUserResponse
     public required string FullName { get; init; }
 
     public required string Role { get; init; }
+
+    public string? Floor { get; init; }
 }

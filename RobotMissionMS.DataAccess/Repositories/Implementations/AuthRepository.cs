@@ -17,11 +17,11 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
     private readonly HashSet<Guid> lockedUsers = [];
 
     public Task<User?> FindUserByUsernameAsync(string username, CancellationToken cancellationToken = default) =>
-        db.Users.AsNoTracking().Include(x => x.Role)
+        db.Users.AsNoTracking().Include(x => x.Role).Include(x => x.Zone)
             .SingleOrDefaultAsync(x => x.Username == username, cancellationToken);
 
     public Task<User?> FindUserByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        db.Users.AsNoTracking().Include(x => x.Role)
+        db.Users.AsNoTracking().Include(x => x.Role).Include(x => x.Zone)
             .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
 
     public Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default) =>
@@ -55,6 +55,8 @@ public sealed class AuthRepository(RobotMissionDbContext db) : IAuthRepository
         if (user is null) return null;
 
         user.Role = await db.Roles.AsNoTracking().SingleAsync(x => x.Id == user.RoleId, cancellationToken);
+        if (user.ZoneId is not null)
+            user.Zone = await db.Zones.AsNoTracking().SingleAsync(x => x.Id == user.ZoneId, cancellationToken);
         lockedUsers.Add(userId);
         return user;
     }
