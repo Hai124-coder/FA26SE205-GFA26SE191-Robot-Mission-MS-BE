@@ -18,8 +18,13 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
                 r.Slots,
                 r.ColorHex,
                 r.Description,
+                r.SlotLengthCm,
+                r.SlotWidthCm,
+                r.SlotHeightCm,
                 r.MaxLoadPerSlotKg,
-                r.MaxPayloadKg))
+                r.MaxPayloadKg,
+                r.SpeedMs,
+                r.HomeStationType))
             .ToList();
     }
 
@@ -33,7 +38,9 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
         if (string.IsNullOrWhiteSpace(typeCode)
             || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
             || string.IsNullOrWhiteSpace(request.Name)
-            || string.IsNullOrWhiteSpace(request.ColorHex))
+            || string.IsNullOrWhiteSpace(request.ColorHex)
+            || (request.MaxLoadPerSlotKg is not null && request.MaxPayloadKg is not null
+                && request.Slots * request.MaxLoadPerSlotKg.Value > request.MaxPayloadKg.Value))
             return UpdateRobotTypeResult.Failure(UpdateRobotTypeError.InvalidRequest);
 
         var existing = await repository.FindByTypeCodeAsync(typeCode, cancellationToken);
@@ -46,8 +53,13 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
             request.Slots,
             request.ColorHex.Trim(),
             request.Description?.Trim(),
+            request.SlotLengthCm,
+            request.SlotWidthCm,
+            request.SlotHeightCm,
             request.MaxLoadPerSlotKg,
             request.MaxPayloadKg,
+            request.SpeedMs,
+            request.HomeStationType?.Trim(),
             cancellationToken);
 
         return UpdateRobotTypeResult.Success(new RobotTypeResponse(
@@ -57,7 +69,12 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
             request.Slots,
             request.ColorHex.Trim(),
             request.Description?.Trim(),
+            request.SlotLengthCm,
+            request.SlotWidthCm,
+            request.SlotHeightCm,
             request.MaxLoadPerSlotKg,
-            request.MaxPayloadKg));
+            request.MaxPayloadKg,
+            request.SpeedMs,
+            request.HomeStationType?.Trim()));
     }
 }

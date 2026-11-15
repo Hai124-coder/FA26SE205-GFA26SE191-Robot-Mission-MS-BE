@@ -588,6 +588,8 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(100);
             entity.Property(e => e.MaxLoadPerSlotKg).HasPrecision(6, 2);
             entity.Property(e => e.MaxPayloadKg).HasPrecision(6, 2);
+            entity.Property(e => e.SpeedMs).HasPrecision(4, 2);
+            entity.Property(e => e.HomeStationType).HasMaxLength(30);
             entity.Property(e => e.Slots).HasDefaultValue(0);
             entity.Property(e => e.TypeCode).HasMaxLength(50);
         });

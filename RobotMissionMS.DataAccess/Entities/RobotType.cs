@@ -17,9 +17,19 @@ public partial class RobotType
 
     public string? Description { get; set; }
 
+    public int? SlotLengthCm { get; set; }
+
+    public int? SlotWidthCm { get; set; }
+
+    public int? SlotHeightCm { get; set; }
+
     public decimal? MaxLoadPerSlotKg { get; set; }
 
     public decimal? MaxPayloadKg { get; set; }
+
+    public decimal? SpeedMs { get; set; }
+
+    public string? HomeStationType { get; set; }
 
     public virtual ICollection<MissionType> MissionTypes { get; set; } = new List<MissionType>();
 

@@ -29,9 +29,18 @@ public sealed class UpdateRobotTypeRequest
     [StringLength(500)]
     public string? Description { get; init; }
 
+    [Range(1, 10000)] public int? SlotLengthCm { get; init; }
+    [Range(1, 10000)] public int? SlotWidthCm { get; init; }
+    [Range(1, 10000)] public int? SlotHeightCm { get; init; }
+
     [Range(typeof(decimal), "0.001", "99999.999")]
     public decimal? MaxLoadPerSlotKg { get; init; }
 
     [Range(typeof(decimal), "0.001", "999999.999")]
     public decimal? MaxPayloadKg { get; init; }
+
+    [Range(typeof(decimal), "0.01", "99.99")]
+    public decimal? SpeedMs { get; init; }
+
+    [StringLength(30)] public string? HomeStationType { get; init; }
 }

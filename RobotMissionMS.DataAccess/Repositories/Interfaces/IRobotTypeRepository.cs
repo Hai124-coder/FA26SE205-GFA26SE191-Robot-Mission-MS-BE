@@ -21,8 +21,13 @@ public interface IRobotTypeRepository
         int slots,
         string colorHex,
         string? description,
+        int? slotLengthCm,
+        int? slotWidthCm,
+        int? slotHeightCm,
         decimal? maxLoadPerSlotKg,
         decimal? maxPayloadKg,
+        decimal? speedMs,
+        string? homeStationType,
         CancellationToken cancellationToken = default);
 }
 
@@ -33,6 +38,11 @@ public sealed record RobotTypeRow(
     int     Slots,
     string  ColorHex,
     string? Description,
+    int?    SlotLengthCm,
+    int?    SlotWidthCm,
+    int?    SlotHeightCm,
     decimal? MaxLoadPerSlotKg,
-    decimal? MaxPayloadKg
+    decimal? MaxPayloadKg,
+    decimal? SpeedMs,
+    string? HomeStationType
 );

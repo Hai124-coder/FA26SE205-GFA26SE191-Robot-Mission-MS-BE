@@ -18,8 +18,13 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 rt.Slots,
                 rt.ColorHex,
                 rt.Description,
+                rt.SlotLengthCm,
+                rt.SlotWidthCm,
+                rt.SlotHeightCm,
                 rt.MaxLoadPerSlotKg,
-                rt.MaxPayloadKg))
+                rt.MaxPayloadKg,
+                rt.SpeedMs,
+                rt.HomeStationType))
             .ToListAsync(cancellationToken);
     }
 
@@ -34,8 +39,13 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 rt.Slots,
                 rt.ColorHex,
                 rt.Description,
+                rt.SlotLengthCm,
+                rt.SlotWidthCm,
+                rt.SlotHeightCm,
                 rt.MaxLoadPerSlotKg,
-                rt.MaxPayloadKg))
+                rt.MaxPayloadKg,
+                rt.SpeedMs,
+                rt.HomeStationType))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<bool> UpdateAsync(
@@ -44,8 +54,13 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
         int slots,
         string colorHex,
         string? description,
+        int? slotLengthCm,
+        int? slotWidthCm,
+        int? slotHeightCm,
         decimal? maxLoadPerSlotKg,
         decimal? maxPayloadKg,
+        decimal? speedMs,
+        string? homeStationType,
         CancellationToken cancellationToken = default)
     {
         var updated = await db.RobotTypes
@@ -55,8 +70,13 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 .SetProperty(rt => rt.Slots, slots)
                 .SetProperty(rt => rt.ColorHex, colorHex)
                 .SetProperty(rt => rt.Description, description)
+                .SetProperty(rt => rt.SlotLengthCm, slotLengthCm)
+                .SetProperty(rt => rt.SlotWidthCm, slotWidthCm)
+                .SetProperty(rt => rt.SlotHeightCm, slotHeightCm)
                 .SetProperty(rt => rt.MaxLoadPerSlotKg, maxLoadPerSlotKg)
-                .SetProperty(rt => rt.MaxPayloadKg, maxPayloadKg),
+                .SetProperty(rt => rt.MaxPayloadKg, maxPayloadKg)
+                .SetProperty(rt => rt.SpeedMs, speedMs)
+                .SetProperty(rt => rt.HomeStationType, homeStationType),
                 cancellationToken);
 
         return updated > 0;
