@@ -296,6 +296,14 @@ Màn SC-12 Hàng chờ, SC-19 Lịch sử nhiệm vụ. Một nhiệm vụ = m�
 
 Trường actions trong kết quả GET /tasks/{id} liệt kê thao tác được phép (EDIT, CANCEL, REDELIVER) để frontend bật/tắt nút, không phải tự suy từ trạng thái.
 
+### Contract API đọc nhiệm vụ
+
+`GET /tasks` trả phân trang `{ items, page, pageSize, total }`, mặc định `page=1`, `pageSize=20` (tối đa 100), sắp theo thời điểm tạo giảm dần. Hỗ trợ `status` (một hoặc nhiều giá trị phân cách bằng dấu phẩy), `floor`, `type`, `department`, `robotId`, `requestCode`, `importId`, `from`, `to`, `q`. `from` không được lớn hơn `to`; enum và giới hạn phân trang sai trả `400 TASKS_INVALID_QUERY`. Operator luôn bị giới hạn vào tầng trong token, kể cả khi truyền `floor` khác.
+
+`GET /tasks/{id}` trả chi tiết nhiệm vụ, các alert liên quan và `actions` hiện được phép. Operator đọc nhiệm vụ của tầng khác nhận `403 FLOOR_FORBIDDEN`; không có nhiệm vụ nhận `404 TASK_NOT_FOUND`.
+
+`GET /tasks/{id}/timeline` luôn có mốc `CREATED` từ thời điểm tạo nhiệm vụ, sau đó trả các chuyển trạng thái đã được ghi trong `MissionStatusHistory`. API không tự suy diễn các mốc robot lên hàng, đến khoa hoặc cảm biến báo trống khi hệ thống chưa ghi sự kiện đó.
+
 
 ## 8. Điều phối (kế hoạch) và chuyến
 

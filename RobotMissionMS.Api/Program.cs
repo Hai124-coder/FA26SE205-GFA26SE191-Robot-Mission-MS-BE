@@ -25,6 +25,7 @@ builder.Services.AddConfigurationServices();
 builder.Services.AddItemCatalogServices();
 builder.Services.AddMissionTypeServices();
 builder.Services.AddRequestPreviewServices();
+builder.Services.AddTaskServices();
 builder.Services.AddImportServices();
 builder.Services.AddJwtBearerAuthentication();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
