@@ -33,4 +33,8 @@ public sealed class ImportsController(IImportTemplateService templateService) : 
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); return await templateService.DeleteAsync(id, userId, floor, cancellationToken) ? NoContent() : NotFound(); }
+    [HttpPost("{id:guid}/commit")]
+    [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    public async Task<IActionResult> Commit(Guid id, CancellationToken cancellationToken)
+    { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.CommitAsync(id, userId, floor, cancellationToken)); } catch (InvalidOperationException e) { return e.Message switch { "IMPORT_NOT_FOUND" => NotFound(), "IMPORT_FORBIDDEN" => Problem(type: "FLOOR_FORBIDDEN", statusCode: 403), _ => Problem(type: e.Message, statusCode: 409) }; } }
 }
