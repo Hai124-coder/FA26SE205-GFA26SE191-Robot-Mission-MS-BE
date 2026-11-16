@@ -14,6 +14,9 @@ public static class DatabaseDataSource
         builder.MapEnum<BatchSource>("public.batch_source");
         builder.MapEnum<BatchStatus>("public.batch_status");
         builder.MapEnum<ChargingSessionStatus>("public.charging_session_status");
+        builder.MapEnum<DispatchPlanSource>("public.dispatch_plan_source");
+        builder.MapEnum<DispatchPlanStatus>("public.dispatch_plan_status");
+        builder.MapEnum<DispatchPlanTaskStatus>("public.dispatch_plan_task_status");
         builder.MapEnum<LocationKind>("public.location_kind");
         builder.MapEnum<MapVersionStatus>("public.map_version_status");
         builder.MapEnum<MissionFailReason>("public.mission_fail_reason");

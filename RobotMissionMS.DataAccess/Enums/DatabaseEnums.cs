@@ -50,6 +50,32 @@ public enum BatchStatus
     Discarded,
 }
 
+public enum DispatchPlanStatus
+{
+    [PgName("DRAFT")]
+    Draft,
+    [PgName("RELEASED")]
+    Released,
+    [PgName("DISCARDED")]
+    Discarded,
+}
+
+public enum DispatchPlanSource
+{
+    [PgName("AI")]
+    Ai,
+    [PgName("FALLBACK")]
+    Fallback,
+}
+
+public enum DispatchPlanTaskStatus
+{
+    [PgName("ASSIGNED")]
+    Assigned,
+    [PgName("WAITING")]
+    Waiting,
+}
+
 public enum ChargingSessionStatus
 {
     [PgName("CHARGING")]

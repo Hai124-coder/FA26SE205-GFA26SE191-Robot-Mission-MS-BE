@@ -47,6 +47,23 @@ public partial class Mission
     public MissionFailReason? FailReason { get; set; }
 }
 
+public partial class DispatchPlan
+{
+    public DispatchPlanStatus Status { get; set; }
+    public DispatchPlanSource Source { get; set; }
+}
+
+public partial class DispatchPlanStop
+{
+    public TripStopAction Action { get; set; }
+}
+
+public partial class DispatchPlanTask
+{
+    public DispatchPlanTaskStatus Status { get; set; }
+    public MissionPriority Priority { get; set; }
+}
+
 public partial class MissionStatusHistory
 {
     public MissionStatus? FromStatus { get; set; }

@@ -9,6 +9,7 @@ public partial class RobotMissionDbContext
     // EF Core scaffolding omits native PostgreSQL enum columns.
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        modelBuilder.ConfigureDispatchPlans();
         modelBuilder.Entity<Alert>().Property(e => e.Category).HasColumnType("alert_category");
         modelBuilder.Entity<Alert>().Property(e => e.Severity).HasColumnType("alert_severity").HasDefaultValueSql("'WARNING'::alert_severity")
             .HasSentinel((AlertSeverity)(-1));
@@ -19,6 +20,11 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<Request>().Property(e => e.Source).HasColumnType("batch_source");
         modelBuilder.Entity<BatchRow>().Property(e => e.Priority).HasColumnType("mission_priority");
         modelBuilder.Entity<ChargingSession>().Property(e => e.Status).HasColumnType("charging_session_status").HasDefaultValueSql("'CHARGING'::charging_session_status");
+        modelBuilder.Entity<DispatchPlan>().Property(e => e.Status).HasColumnType("dispatch_plan_status").HasDefaultValueSql("'DRAFT'::dispatch_plan_status");
+        modelBuilder.Entity<DispatchPlan>().Property(e => e.Source).HasColumnType("dispatch_plan_source");
+        modelBuilder.Entity<DispatchPlanStop>().Property(e => e.Action).HasColumnType("trip_stop_action");
+        modelBuilder.Entity<DispatchPlanTask>().Property(e => e.Status).HasColumnType("dispatch_plan_task_status");
+        modelBuilder.Entity<DispatchPlanTask>().Property(e => e.Priority).HasColumnType("mission_priority");
         modelBuilder.Entity<ChargingStation>().Property(e => e.Status).HasColumnType("station_status").HasDefaultValueSql("'OPERATIONAL'::station_status");
         // Pharmacy is enum value 0: do not treat it as unset and replace it with DEPT.
         modelBuilder.Entity<Location>().Property(e => e.Kind).HasColumnType("location_kind").HasDefaultValueSql("'DEPT'::location_kind")
