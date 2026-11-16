@@ -4,9 +4,9 @@ using Npgsql;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.Seeder;
 
-if (args.Length != 1 || args[0] is not ("--preview" or "--apply"))
+if (args.Length != 1 || args[0] is not ("--preview" or "--apply" or "--create-admin"))
 {
-    Console.WriteLine("Usage: dotnet run --project RobotMissionMS.Seeder -- --preview|--apply");
+    Console.WriteLine("Usage: dotnet run --project RobotMissionMS.Seeder -- --preview|--apply|--create-admin");
     Console.WriteLine("Requires DOTNET_ENVIRONMENT=Development. Preview validates inserts then rolls back.");
     return args.Length == 1 && args[0] == "--help" ? 0 : 1;
 }
@@ -28,6 +28,11 @@ try
     await using var source = DatabaseDataSource.Create(connectionString);
     var options = new DbContextOptionsBuilder<RobotMissionDbContext>().UseNpgsql(source).Options;
     await using var db = new RobotMissionDbContext(options);
+    if (args[0] == "--create-admin")
+    {
+        await AdminBootstrapper.RunAsync(db);
+        return 0;
+    }
     await using var transaction = await db.Database.BeginTransactionAsync();
     // Serializes concurrent runs of this seeder until commit/rollback.
     await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(726667, 1)");

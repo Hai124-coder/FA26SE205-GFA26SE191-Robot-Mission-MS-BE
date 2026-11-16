@@ -71,6 +71,24 @@ dotnet build RobotMissionMS.sln -p:BaseOutputPath=bin/seed-validation/
 
 ## Tính nhất quán và chạy lại
 
+### Tạo Admin đầu tiên để test Swagger
+
+Sau khi seed role ADMIN, chạy trong terminal tương tác:
+
+```powershell
+$env:DOTNET_ENVIRONMENT = 'Development'
+dotnet run --project RobotMissionMS.Seeder -- --create-admin
+```
+
+Nhập username, họ tên, mật khẩu và xác nhận mật khẩu. Mật khẩu không hiện trên
+terminal; tối thiểu 8 ký tự, có chữ và số, khác username. Công cụ lưu hash bằng
+ASP.NET Core Identity, tạo tài khoản ADMIN active không gán tầng. Dùng thông tin
+vừa nhập để gọi POST /api/v1/auth/login. Lệnh này ghi thật vào database được cấu
+hình, không thay schema và không chạy reference seed. Công cụ từ chối nếu đã có
+Admin active hoặc username trùng; không reset hay ghi đè tài khoản hiện có.
+
+### Reference seed
+
 - Tìm theo mã/tên/khóa nghiệp vụ, dùng lại ID đang có; không cập nhật/xóa bản ghi cũ.
 - Một transaction bao trùm toàn bộ seed, gồm nhiều lần SaveChanges theo thứ tự khóa ngoại.
 - PostgreSQL advisory lock ngăn hai lần chạy công cụ seed này chồng lên nhau.
