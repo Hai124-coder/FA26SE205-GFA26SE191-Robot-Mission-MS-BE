@@ -338,6 +338,8 @@ Backend tự soạn kế hoạch khi một robot vừa rảnh mà còn đơn ch�
 
 Ở giai đoạn fallback đầu tiên, `POST /plans` tạo bản nháp nguồn `FALLBACK`, dùng đúng điểm của `GET /tasks/queue` và mỗi robot chỉ nhận một nhiệm vụ. Bản nháp cũ của tầng được chuyển `DISCARDED` trong cùng giao dịch; nhiệm vụ không đổi trạng thái hay gắn `TripId` cho đến khi phát lệnh. Khi chưa có bản đồ công bố, thiếu điểm lấy/giao hoặc không có robot đúng loại đang `AVAILABLE` và kết nối, nhiệm vụ vẫn được ghi `WAITING` cùng lý do tương ứng.
 
+Các API ghi lên bản nháp (`PATCH`, `DELETE`) bắt buộc gửi header `If-Match` bằng `Version` số nguyên nhận từ API đọc. Thành công tăng `Version` và `ManualEditCount`; phiên bản cũ trả `409 PLAN_VERSION_CONFLICT`. Chuyển nhiệm vụ sang robot kiểm tra cùng tầng, robot `AVAILABLE`/kết nối, đúng loại, còn ngăn và cùng điểm lấy; các lỗi tương ứng là `FLOOR_FORBIDDEN`, `BR-13_WRONG_TYPE`, `BR-11_SLOT_FULL`, `BR-10_PICKUP_MISMATCH`. Xóa chuyến chỉ đưa các nhiệm vụ của chuyến về `WAITING`; xóa kế hoạch chuyển nháp sang `DISCARDED` để giữ lịch sử.
+
 Trong giai đoạn schema 008, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` được bổ sung cùng migration 009 khi loại chuyến được lưu bền vững.
 
 

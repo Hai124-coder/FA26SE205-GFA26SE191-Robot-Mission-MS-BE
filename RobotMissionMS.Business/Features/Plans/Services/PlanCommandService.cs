@@ -67,4 +67,94 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
     }
 
     private static void AddWaiting(DispatchPlan plan, Mission mission, string reason) => plan.Tasks.Add(new DispatchPlanTask { Id = Guid.NewGuid(), PlanId = plan.Id, MissionId = mission.Id, Status = DispatchPlanTaskStatus.Waiting, Priority = mission.Priority, WaitReason = reason });
+
+    public async Task<PlanCommandResult> ReassignTaskAsync(Guid userId, string floor, Guid taskId, Guid? robotId, long version, CancellationToken cancellationToken = default)
+    {
+        if (!Valid(userId, floor, version) || taskId == Guid.Empty) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+        await using var transaction = await BeginAsync(cancellationToken);
+        var plan = await LockDraftAsync(floor, cancellationToken);
+        if (plan is null) return PlanCommandResult.Failure(PlanCommandError.NoCurrentPlan);
+        if (plan.Version != version) return PlanCommandResult.Failure(PlanCommandError.VersionConflict);
+        var task = plan.Tasks.SingleOrDefault(value => value.Id == taskId);
+        if (task is null) return PlanCommandResult.Failure(PlanCommandError.TaskNotFound);
+        var oldTrip = task.PlanTrip;
+        if (robotId is null)
+        {
+            SetWaiting(task, "MANUALLY_UNASSIGNED");
+            RemoveEmptyTrip(plan, oldTrip);
+        }
+        else
+        {
+            var robot = await db.Robots.Include(value => value.RobotType).SingleOrDefaultAsync(value => value.Id == robotId, cancellationToken);
+            if (robot is null || robot.ZoneId != plan.ZoneId) return PlanCommandResult.Failure(PlanCommandError.FloorForbidden);
+            if (robot.State != RobotState.Available || !robot.IsConnected) return PlanCommandResult.Failure(PlanCommandError.RobotUnavailable);
+            if (robot.RobotTypeId != task.Mission.MissionType.RobotTypeId) return PlanCommandResult.Failure(PlanCommandError.WrongRobotType);
+            if (task.Mission.FromLocationId is null || task.Mission.ToLocationId is null) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+            var target = plan.Trips.SingleOrDefault(value => value.RobotId == robotId);
+            if (target is null)
+            {
+                var map = await db.MapVersions.AsNoTracking().SingleOrDefaultAsync(value => value.ZoneId == plan.ZoneId && value.Status == MapVersionStatus.Published, cancellationToken);
+                if (map is null) return PlanCommandResult.Failure(PlanCommandError.MapNotPublished);
+                target = new DispatchPlanTrip { Id = Guid.NewGuid(), PlanId = plan.Id, RobotId = robot.Id, MapVersionId = map.Id, PickupLocationId = task.Mission.FromLocationId, Seq = plan.Trips.Count == 0 ? 1 : plan.Trips.Max(value => value.Seq) + 1 };
+                var pickup = new DispatchPlanStop { Id = Guid.NewGuid(), PlanTripId = target.Id, Seq = 1, LocationId = task.Mission.FromLocationId.Value, Action = TripStopAction.Pickup };
+                var drop = new DispatchPlanStop { Id = Guid.NewGuid(), PlanTripId = target.Id, Seq = 2, LocationId = task.Mission.ToLocationId.Value, Action = TripStopAction.Drop };
+                target.Stops.Add(pickup); target.Stops.Add(drop); plan.Trips.Add(target); db.DispatchPlanTrips.Add(target); db.DispatchPlanStops.AddRange(pickup, drop);
+            }
+            else
+            {
+                if (target.PickupLocationId != task.Mission.FromLocationId) return PlanCommandResult.Failure(PlanCommandError.PickupMismatch);
+                if (target.Tasks.Where(value => value.Id != task.Id && value.Status == DispatchPlanTaskStatus.Assigned).Count() >= robot.RobotType.Slots) return PlanCommandResult.Failure(PlanCommandError.SlotFull);
+            }
+            var delivery = target.Stops.FirstOrDefault(stop => stop.Action == TripStopAction.Drop && stop.LocationId == task.Mission.ToLocationId);
+            if (delivery is null)
+            {
+                delivery = new DispatchPlanStop { Id = Guid.NewGuid(), PlanTripId = target.Id, Seq = target.Stops.Max(stop => stop.Seq) + 1, LocationId = task.Mission.ToLocationId.Value, Action = TripStopAction.Drop };
+                target.Stops.Add(delivery); db.DispatchPlanStops.Add(delivery);
+            }
+            var used = target.Tasks.Where(value => value.Id != task.Id && value.SlotNo is not null).Select(value => value.SlotNo!.Value).ToHashSet();
+            var slot = Enumerable.Range(1, robot.RobotType.Slots).FirstOrDefault(value => !used.Contains(value));
+            if (slot == 0) return PlanCommandResult.Failure(PlanCommandError.SlotFull);
+            task.Status = DispatchPlanTaskStatus.Assigned; task.PlanTripId = target.Id; task.PlanTrip = target; task.DeliveryPlanStopId = delivery.Id; task.DeliveryPlanStop = delivery; task.SlotNo = slot; task.WaitReason = null;
+            if (oldTrip is not null && oldTrip.Id != target.Id) RemoveEmptyTrip(plan, oldTrip);
+        }
+        Touch(plan, userId, "PLAN_TASK_REASSIGNED");
+        await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return PlanCommandResult.Success(plan.Id);
+    }
+
+    public async Task<PlanCommandResult> ChangeTaskPriorityAsync(Guid userId, string floor, Guid taskId, string priority, long version, CancellationToken cancellationToken = default)
+    {
+        if (!Valid(userId, floor, version) || taskId == Guid.Empty || !Enum.TryParse<MissionPriority>(priority, true, out var value) || !Enum.IsDefined(value)) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+        await using var transaction = await BeginAsync(cancellationToken); var plan = await LockDraftAsync(floor, cancellationToken);
+        if (plan is null) return PlanCommandResult.Failure(PlanCommandError.NoCurrentPlan); if (plan.Version != version) return PlanCommandResult.Failure(PlanCommandError.VersionConflict);
+        var task = plan.Tasks.SingleOrDefault(item => item.Id == taskId); if (task is null) return PlanCommandResult.Failure(PlanCommandError.TaskNotFound);
+        task.Priority = value; Touch(plan, userId, "PLAN_TASK_PRIORITY_CHANGED"); await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
+    }
+
+    public async Task<PlanCommandResult> RemoveTripAsync(Guid userId, string floor, Guid robotId, long version, CancellationToken cancellationToken = default)
+    {
+        if (!Valid(userId, floor, version) || robotId == Guid.Empty) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+        await using var transaction = await BeginAsync(cancellationToken); var plan = await LockDraftAsync(floor, cancellationToken);
+        if (plan is null) return PlanCommandResult.Failure(PlanCommandError.NoCurrentPlan); if (plan.Version != version) return PlanCommandResult.Failure(PlanCommandError.VersionConflict);
+        var trip = plan.Trips.SingleOrDefault(item => item.RobotId == robotId); if (trip is null) return PlanCommandResult.Failure(PlanCommandError.TaskNotFound);
+        foreach (var task in trip.Tasks.ToList()) SetWaiting(task, "TRIP_REMOVED_MANUALLY"); RemoveEmptyTrip(plan, trip); Touch(plan, userId, "PLAN_TRIP_REMOVED");
+        await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
+    }
+
+    public async Task<PlanCommandResult> DiscardCurrentAsync(Guid userId, string floor, long version, CancellationToken cancellationToken = default)
+    {
+        if (!Valid(userId, floor, version)) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+        await using var transaction = await BeginAsync(cancellationToken); var plan = await LockDraftAsync(floor, cancellationToken);
+        if (plan is null) return PlanCommandResult.Failure(PlanCommandError.NoCurrentPlan); if (plan.Version != version) return PlanCommandResult.Failure(PlanCommandError.VersionConflict);
+        plan.Status = DispatchPlanStatus.Discarded; plan.DiscardedAt = clock.GetUtcNow().UtcDateTime; Touch(plan, userId, "PLAN_DRAFT_DISCARDED");
+        await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
+    }
+
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(CancellationToken ct) => db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+    private async Task<DispatchPlan?> LockDraftAsync(string floor, CancellationToken ct) => await db.DispatchPlans.FromSqlInterpolated($"SELECT p.* FROM public.\"DispatchPlans\" p JOIN public.\"Zones\" z ON z.\"Id\" = p.\"ZoneId\" WHERE p.\"Status\" = 'DRAFT'::public.dispatch_plan_status AND z.\"Code\" = {floor.Trim()} FOR UPDATE OF p")
+        .Include(plan => plan.Trips).ThenInclude(trip => trip.Stops).Include(plan => plan.Trips).ThenInclude(trip => trip.Tasks).Include(plan => plan.Tasks).ThenInclude(task => task.Mission).ThenInclude(mission => mission.MissionType).AsSplitQuery().SingleOrDefaultAsync(ct);
+    private static bool Valid(Guid userId, string floor, long version) => userId != Guid.Empty && !string.IsNullOrWhiteSpace(floor) && version > 0;
+    private static void SetWaiting(DispatchPlanTask task, string reason) { task.Status = DispatchPlanTaskStatus.Waiting; task.PlanTripId = null; task.PlanTrip = null; task.DeliveryPlanStopId = null; task.DeliveryPlanStop = null; task.SlotNo = null; task.WaitReason = reason; }
+    private void RemoveEmptyTrip(DispatchPlan plan, DispatchPlanTrip? trip) { if (trip is null || trip.Tasks.Any(task => task.Status == DispatchPlanTaskStatus.Assigned)) return; db.DispatchPlanStops.RemoveRange(trip.Stops); db.DispatchPlanTrips.Remove(trip); plan.Trips.Remove(trip); }
+    private void Touch(DispatchPlan plan, Guid userId, string action) { plan.ManualEditCount++; plan.Version++; db.ActivityLogs.Add(new ActivityLog { UserId = userId, Timestamp = clock.GetUtcNow().UtcDateTime, Action = action, TargetObject = $"DispatchPlan:{plan.Id:D}" }); }
 }
