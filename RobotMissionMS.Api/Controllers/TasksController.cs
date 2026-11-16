@@ -65,6 +65,7 @@ public sealed class TasksController(ITaskReadService tasks, ITaskCommandService 
     private bool OperatorWithoutFloor() => User.IsInRole("OPERATOR") && string.IsNullOrWhiteSpace(OperatorFloor());
     private async Task<ActionResult<TaskActionResponse>> Command(Guid id, Func<Guid, string, Task<TaskCommandResult>> execute)
     {
+        if (OperatorWithoutFloor()) return Problem(type: "OPERATOR_FLOOR_NOT_CONFIGURED", statusCode: 409);
         if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || OperatorFloor() is not { } floor) return Unauthorized();
         var result = await execute(userId, floor);
         return result.IsSuccess ? Ok(result.Response) : CommandFailure(result.Error!.Value);

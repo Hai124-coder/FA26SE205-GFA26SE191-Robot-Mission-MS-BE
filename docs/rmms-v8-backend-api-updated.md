@@ -310,6 +310,8 @@ Trường actions trong kết quả GET /tasks/{id} liệt kê thao tác đượ
 
 Ba thao tác ghi khóa dòng nhiệm vụ trong transaction, ghi `MissionStatusHistory` cho các chuyển trạng thái và `ActivityLog` cho thao tác. Các lỗi nghiệp vụ trả lần lượt `TASK_NOT_PENDING`, `TASK_CARGO_NOT_RETURNED` hoặc `TASK_ITEM_CONFIGURATION_INVALID` với HTTP 409; không tìm thấy và sai tầng trả `TASK_NOT_FOUND` (404) và `FLOOR_FORBIDDEN` (403).
 
+Luồng điều phối/sự cố phải ghi `MISSION_CARGO_RETURNED` sau khi kho xác nhận đã nhận lại hàng. Phiên bản hiện tại chưa có luồng điều phối hoặc xử lý sự cố để phát sinh sự kiện này; vì vậy tích hợp đó là điều kiện bắt buộc để giao lại nhiệm vụ thất bại hoạt động với dữ liệu thực tế.
+
 
 ## 8. Điều phối (kế hoạch) và chuyến
 

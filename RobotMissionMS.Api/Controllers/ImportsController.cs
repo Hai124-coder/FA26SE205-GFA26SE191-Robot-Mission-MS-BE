@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using RobotMissionMS.Api.Authorization;
+using RobotMissionMS.Api.Contracts;
 using RobotMissionMS.Api.Imports;
 using RobotMissionMS.DataAccess.Enums;
 
@@ -35,13 +36,21 @@ public sealed class ImportsController(IImportTemplateService templateService) : 
     }
     [HttpPost]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    [Consumes("multipart/form-data")]
     [RequestSizeLimit(ImportTemplateService.MaximumUploadBytes)]
     [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Import([FromForm] IFormFile file, CancellationToken cancellationToken)
-    { if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized(); try { return Ok(await templateService.ImportAsync(userId, floor, file, cancellationToken)); } catch (InvalidOperationException e) when (e.Message == "FLOORS_INACTIVE") { return Problem(type: e.Message, statusCode: 403); } catch (InvalidOperationException e) when (e.Message == "IMPORT_FILE_TOO_LARGE") { return Problem(type: e.Message, statusCode: 413); } catch (InvalidOperationException e) when (e.Message.StartsWith("IMPORT_")) { return Problem(type: e.Message, statusCode: 400); } }
+    public async Task<IActionResult> Import([FromForm] ImportUploadForm upload, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId) || User.FindFirstValue("rmms:floor") is not { } floor) return Unauthorized();
+        if (upload.File is null || upload.File.Length == 0) return Problem(type: "IMPORT_FILE_INVALID", statusCode: 400);
+        try { return Ok(await templateService.ImportAsync(userId, floor, upload.File, cancellationToken)); }
+        catch (InvalidOperationException e) when (e.Message == "FLOORS_INACTIVE") { return Problem(type: e.Message, statusCode: 403); }
+        catch (InvalidOperationException e) when (e.Message == "IMPORT_FILE_TOO_LARGE") { return Problem(type: e.Message, statusCode: 413); }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("IMPORT_")) { return Problem(type: e.Message, statusCode: 400); }
+    }
     [HttpGet("{id:guid}")]
     [Authorize(Policy = AuthPolicies.OperationsRead)]
     [ProducesResponseType(typeof(ImportBatchResponse), StatusCodes.Status200OK)]
