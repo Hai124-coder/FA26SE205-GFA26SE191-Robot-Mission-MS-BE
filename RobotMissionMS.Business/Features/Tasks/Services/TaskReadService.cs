@@ -26,9 +26,9 @@ public sealed class TaskReadService(RobotMissionDbContext db, TimeProvider? time
     {
         if (!Validator.TryValidateObject(query, new ValidationContext(query), null, true)) return TaskQueueResult.Failure(TaskReadError.InvalidQuery);
         var floor = operatorFloor ?? Normalize(query.Floor);
-        var settings = await db.SystemSettings.AsNoTracking().Where(setting => QueueSettingKeys.All.Contains(setting.Key))
+        var settings = await db.SystemSettings.AsNoTracking().Where(setting => QueuePriority.Keys.Contains(setting.Key))
             .ToDictionaryAsync(setting => setting.Key, setting => setting.Value, StringComparer.Ordinal, cancellationToken);
-        if (!TryReadQueueSettings(settings, out var config)) return TaskQueueResult.Failure(TaskReadError.InvalidQuery);
+        if (!QueuePriority.TryRead(settings, out var config)) return TaskQueueResult.Failure(TaskReadError.InvalidQuery);
         var statuses = new[] { MissionStatus.Pending, MissionStatus.Rescheduled };
         var missions = db.Missions.AsNoTracking().Include(m => m.Zone).Include(m => m.MissionType).Include(m => m.ToLocation)
             .Where(m => statuses.Contains(m.Status));
@@ -87,7 +87,7 @@ public sealed class TaskReadService(RobotMissionDbContext db, TimeProvider? time
     }
 
     private static bool IsValid(TaskListQuery q) => Validator.TryValidateObject(q, new ValidationContext(q), null, true) && (!q.From.HasValue || !q.To.HasValue || q.From <= q.To);
-    private static TaskQueueItemResponse ToQueueItem(Mission mission, QueueSettings config, DateTime now)
+    private static TaskQueueItemResponse ToQueueItem(Mission mission, QueuePrioritySettings config, DateTime now)
     {
         var priorityPoints = mission.Priority switch { MissionPriority.Normal => config.NormalPriority, MissionPriority.High => config.HighPriority, MissionPriority.Urgent => config.UrgentPriority, _ => 0 };
         var deadlinePoints = 0;
@@ -102,20 +102,7 @@ public sealed class TaskReadService(RobotMissionDbContext db, TimeProvider? time
         return new TaskQueueItemResponse { Id = mission.Id, MissionCode = mission.MissionCode, RequestCode = mission.RequestCode, Floor = mission.Zone.Code, MissionType = mission.MissionType.Code,
             Department = mission.ToLocation?.Code, Status = Code(mission.Status), Priority = Code(mission.Priority), CreatedAt = new DateTimeOffset(mission.CreatedAt), DeadlineAt = Offset(mission.DeadlineAt),
             IsOverdue = mission.DeadlineAt is { } value && value < now, PriorityPoints = priorityPoints, DeadlinePoints = deadlinePoints, WaitPoints = waitPoints, RedeliveryPoints = redeliveryPoints,
-            PriorityScore = priorityPoints + deadlinePoints + waitPoints + redeliveryPoints };
-    }
-    private static bool TryReadQueueSettings(IReadOnlyDictionary<string, string> values, out QueueSettings config)
-    {
-        config = default;
-        if (!TryInt(values, QueueSettingKeys.Normal, out var normal) || !TryInt(values, QueueSettingKeys.High, out var high) || !TryInt(values, QueueSettingKeys.Urgent, out var urgent)
-            || !TryInt(values, QueueSettingKeys.WaitStep, out var step) || !TryInt(values, QueueSettingKeys.MaxWait, out var max) || !TryInt(values, QueueSettingKeys.Redelivery, out var redelivery)
-            || step <= 0 || max < 0 || normal < 0 || high < normal || urgent < high || redelivery < 0) return false;
-        config = new QueueSettings(normal, high, urgent, step, max, redelivery); return true;
-    }
-    private static bool TryInt(IReadOnlyDictionary<string, string> values, string key, out int value)
-    {
-        value = 0;
-        return values.TryGetValue(key, out var text) && int.TryParse(text, out value);
+            PriorityScore = QueuePriority.Score(mission, config, now) };
     }
     private static bool TryParseStatuses(string? input, out IReadOnlyList<MissionStatus>? statuses)
     {
@@ -130,10 +117,4 @@ public sealed class TaskReadService(RobotMissionDbContext db, TimeProvider? time
     private static DateTimeOffset? Offset(DateTime? value) => value is null ? null : new DateTimeOffset(value.Value);
     private static string Code<T>(T value) where T : struct, Enum => value.ToString().ToUpperInvariant();
 
-    private readonly record struct QueueSettings(int NormalPriority, int HighPriority, int UrgentPriority, int WaitStepMinutes, int MaxWaitBonus, int RedeliveryBonus);
-    private static class QueueSettingKeys
-    {
-        internal const string Normal = "Queue.NormalPriority", High = "Queue.HighPriority", Urgent = "Queue.UrgentPriority", WaitStep = "Queue.WaitStepMinutes", MaxWait = "Queue.MaxWaitBonus", Redelivery = "Queue.RedeliveryBonus";
-        internal static readonly string[] All = [Normal, High, Urgent, WaitStep, MaxWait, Redelivery];
-    }
 }

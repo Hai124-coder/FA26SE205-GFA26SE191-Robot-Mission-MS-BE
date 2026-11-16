@@ -336,6 +336,8 @@ Backend tự soạn kế hoạch khi một robot vừa rảnh mà còn đơn ch�
 
 `GET /plans/current` trả `204` khi tầng không có kế hoạch `DRAFT`. Operator luôn bị giới hạn ở tầng trong token; Supervisor và Admin phải truyền `floor` để truy vấn một kế hoạch nháp xác định, nếu không API trả `400 PLANS_INVALID_QUERY`. Các API đọc plan và trip trả `403 FLOOR_FORBIDDEN` khi Operator truy cập bản ghi của tầng khác.
 
+Ở giai đoạn fallback đầu tiên, `POST /plans` tạo bản nháp nguồn `FALLBACK`, dùng đúng điểm của `GET /tasks/queue` và mỗi robot chỉ nhận một nhiệm vụ. Bản nháp cũ của tầng được chuyển `DISCARDED` trong cùng giao dịch; nhiệm vụ không đổi trạng thái hay gắn `TripId` cho đến khi phát lệnh. Khi chưa có bản đồ công bố, thiếu điểm lấy/giao hoặc không có robot đúng loại đang `AVAILABLE` và kết nối, nhiệm vụ vẫn được ghi `WAITING` cùng lý do tương ứng.
+
 Trong giai đoạn schema 008, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` được bổ sung cùng migration 009 khi loại chuyến được lưu bền vững.
 
 
