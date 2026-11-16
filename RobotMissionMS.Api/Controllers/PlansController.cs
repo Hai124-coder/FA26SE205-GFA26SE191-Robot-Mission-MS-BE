@@ -48,6 +48,10 @@ public sealed class PlansController(IPlanReadService plans, IPlanCommandService 
         var result = await commands.DiscardCurrentAsync(userId, floor, version, cancellationToken);
         return result.IsSuccess ? NoContent() : CommandFailure(result.Error!.Value);
     }
+    [HttpPost("current/release")]
+    [Authorize(Policy = AuthPolicies.OperatorOnly)]
+    public Task<ActionResult<PlanDetailResponse>> Release([FromHeader(Name = "If-Match")] string? ifMatch, CancellationToken cancellationToken)
+        => Modify(ifMatch, (userId, floor, version) => commands.ReleaseCurrentAsync(userId, floor, version, cancellationToken));
     [HttpGet("current")]
     public async Task<ActionResult<PlanDetailResponse>> Current([FromQuery] PlanCurrentQuery query, CancellationToken cancellationToken)
     {
@@ -113,6 +117,8 @@ public sealed class PlansController(IPlanReadService plans, IPlanCommandService 
         PlanCommandError.RobotUnavailable => new ObjectResult(new ProblemDetails { Type = "PLAN_ROBOT_UNAVAILABLE", Status = 409 }) { StatusCode = 409 },
         PlanCommandError.MapNotPublished => new ObjectResult(new ProblemDetails { Type = "PLAN_MAP_NOT_PUBLISHED", Status = 409 }) { StatusCode = 409 },
         PlanCommandError.VersionConflict => new ObjectResult(new ProblemDetails { Type = "PLAN_VERSION_CONFLICT", Status = 409 }) { StatusCode = 409 },
+        PlanCommandError.PlanStale => new ObjectResult(new ProblemDetails { Type = "PLAN_STALE", Status = 409 }) { StatusCode = 409 },
+        PlanCommandError.NoAssignedTasks => new ObjectResult(new ProblemDetails { Type = "PLAN_HAS_NO_ASSIGNED_TASKS", Status = 409 }) { StatusCode = 409 },
         _ => throw new InvalidOperationException("Plan command service returned an invalid result.")
     };
 }

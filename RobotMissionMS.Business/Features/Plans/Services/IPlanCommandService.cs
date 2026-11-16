@@ -9,6 +9,7 @@ public interface IPlanCommandService
     Task<PlanCommandResult> ChangeTaskPriorityAsync(Guid userId, string floor, Guid taskId, string priority, long version, CancellationToken cancellationToken = default);
     Task<PlanCommandResult> RemoveTripAsync(Guid userId, string floor, Guid robotId, long version, CancellationToken cancellationToken = default);
     Task<PlanCommandResult> DiscardCurrentAsync(Guid userId, string floor, long version, CancellationToken cancellationToken = default);
+    Task<PlanCommandResult> ReleaseCurrentAsync(Guid userId, string floor, long version, CancellationToken cancellationToken = default);
 }
 
 public sealed class PlanCommandResult
@@ -21,4 +22,4 @@ public sealed class PlanCommandResult
     public static PlanCommandResult Failure(PlanCommandError error) => new(null, error);
 }
 
-public enum PlanCommandError { InvalidRequest, FloorNotFound, FloorInactive, QueueConfigurationInvalid, NoCurrentPlan, TaskNotFound, FloorForbidden, WrongRobotType, PickupMismatch, SlotFull, RobotUnavailable, MapNotPublished, VersionConflict }
+public enum PlanCommandError { InvalidRequest, FloorNotFound, FloorInactive, QueueConfigurationInvalid, NoCurrentPlan, TaskNotFound, FloorForbidden, WrongRobotType, PickupMismatch, SlotFull, RobotUnavailable, MapNotPublished, VersionConflict, PlanStale, NoAssignedTasks }

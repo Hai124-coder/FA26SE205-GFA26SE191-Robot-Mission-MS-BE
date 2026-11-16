@@ -150,6 +150,35 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
     }
 
+    public async Task<PlanCommandResult> ReleaseCurrentAsync(Guid userId, string floor, long version, CancellationToken cancellationToken = default)
+    {
+        if (!Valid(userId, floor, version)) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
+        await using var transaction = await BeginAsync(cancellationToken); var plan = await LockDraftAsync(floor, cancellationToken);
+        if (plan is null) return PlanCommandResult.Failure(PlanCommandError.NoCurrentPlan); if (plan.Version != version) return PlanCommandResult.Failure(PlanCommandError.VersionConflict);
+        var assignments = plan.Tasks.Where(task => task.Status == DispatchPlanTaskStatus.Assigned && task.PlanTrip is not null).ToList();
+        if (assignments.Count == 0) return PlanCommandResult.Failure(PlanCommandError.NoAssignedTasks);
+        var now = clock.GetUtcNow().UtcDateTime;
+        foreach (var planTrip in assignments.Select(task => task.PlanTrip!).DistinctBy(trip => trip.Id))
+        {
+            var robot = await db.Robots.FromSqlInterpolated($"SELECT * FROM public.\"Robots\" WHERE \"Id\" = {planTrip.RobotId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
+            if (robot is null || robot.ZoneId != plan.ZoneId || robot.State != RobotState.Available || !robot.IsConnected) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
+            var tasks = assignments.Where(task => task.PlanTripId == planTrip.Id).ToList();
+            if (tasks.Any(task => task.Mission.Status is not MissionStatus.Pending and not MissionStatus.Rescheduled || task.Mission.TripId is not null)) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
+            var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"TRP-{Guid.NewGuid():N}"[..36].ToUpperInvariant(), ZoneId = plan.ZoneId, RobotId = robot.Id, MapVersionId = planTrip.MapVersionId, DispatchedByUserId = userId, CreatedAt = now, DispatchedAt = now, Status = TripStatus.Dispatched };
+            db.Trips.Add(trip);
+            foreach (var stop in planTrip.Stops.OrderBy(stop => stop.Seq)) db.TripStops.Add(new TripStop { Id = Guid.NewGuid(), TripId = trip.Id, Seq = stop.Seq, LocationId = stop.LocationId, Action = stop.Action, Status = TripStopStatus.Pending });
+            foreach (var task in tasks)
+            {
+                var mission = task.Mission; var from = mission.Status; mission.TripId = trip.Id; mission.SlotNo = task.SlotNo; mission.Status = MissionStatus.Assigned;
+                db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, ChangedAt = now, ChangedByUserId = userId, FromStatus = from, ToStatus = MissionStatus.Assigned, Reason = $"Released from dispatch plan {plan.Id:D}." });
+            }
+            robot.State = RobotState.OnTrip;
+        }
+        plan.Status = DispatchPlanStatus.Released; plan.ReleasedAt = now; plan.ReleasedByUserId = userId; plan.Version++;
+        db.ActivityLogs.Add(new ActivityLog { UserId = userId, Timestamp = now, Action = "PLAN_RELEASED", TargetObject = $"DispatchPlan:{plan.Id:D}" });
+        await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
+    }
+
     private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(CancellationToken ct) => db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
     private async Task<DispatchPlan?> LockDraftAsync(string floor, CancellationToken ct) => await db.DispatchPlans.FromSqlInterpolated($"SELECT p.* FROM public.\"DispatchPlans\" p JOIN public.\"Zones\" z ON z.\"Id\" = p.\"ZoneId\" WHERE p.\"Status\" = 'DRAFT'::public.dispatch_plan_status AND z.\"Code\" = {floor.Trim()} FOR UPDATE OF p")
         .Include(plan => plan.Trips).ThenInclude(trip => trip.Stops).Include(plan => plan.Trips).ThenInclude(trip => trip.Tasks).Include(plan => plan.Tasks).ThenInclude(task => task.Mission).ThenInclude(mission => mission.MissionType).AsSplitQuery().SingleOrDefaultAsync(ct);

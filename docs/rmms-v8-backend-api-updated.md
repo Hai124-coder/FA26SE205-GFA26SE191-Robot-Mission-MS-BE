@@ -340,6 +340,8 @@ Backend tự soạn kế hoạch khi một robot vừa rảnh mà còn đơn ch�
 
 Các API ghi lên bản nháp (`PATCH`, `DELETE`) bắt buộc gửi header `If-Match` bằng `Version` số nguyên nhận từ API đọc. Thành công tăng `Version` và `ManualEditCount`; phiên bản cũ trả `409 PLAN_VERSION_CONFLICT`. Chuyển nhiệm vụ sang robot kiểm tra cùng tầng, robot `AVAILABLE`/kết nối, đúng loại, còn ngăn và cùng điểm lấy; các lỗi tương ứng là `FLOOR_FORBIDDEN`, `BR-13_WRONG_TYPE`, `BR-11_SLOT_FULL`, `BR-10_PICKUP_MISMATCH`. Xóa chuyến chỉ đưa các nhiệm vụ của chuyến về `WAITING`; xóa kế hoạch chuyển nháp sang `DISCARDED` để giữ lịch sử.
 
+`POST /plans/current/release` cũng bắt buộc `If-Match`. Backend khóa lại từng robot và kiểm tra trạng thái/kết nối, rồi tạo `Trip`/`TripStop`, chuyển nhiệm vụ sang `ASSIGNED` có lịch sử trạng thái, robot sang `ON_TRIP` và kế hoạch sang `RELEASED` trong một transaction. Khi dữ liệu robot hoặc nhiệm vụ đã thay đổi, API trả `409 PLAN_STALE` và không ghi dở dang. Dự án hiện chưa có MQTT publisher hoặc outbox; việc gửi lệnh robot sẽ được bổ sung qua outbox bền vững ở bước tích hợp tiếp theo, thay vì gửi trực tiếp trong transaction database.
+
 Trong giai đoạn schema 008, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` được bổ sung cùng migration 009 khi loại chuyến được lưu bền vững.
 
 
