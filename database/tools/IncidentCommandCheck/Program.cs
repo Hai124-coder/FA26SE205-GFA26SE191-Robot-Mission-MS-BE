@@ -20,7 +20,7 @@ try
     var created = await service.CreateAsync(actorUserId, new CreateIncidentRequest { ScenarioCode = "E1", Message = "Rollback-only incident command verification." });
     if (!created.IsSuccess || created.Response is null || created.Response.Phase != "DECIDE") throw new InvalidOperationException($"Create failed: {created.Error}");
 
-    var resolved = await service.ApplyActionAsync(created.Response.AlertId, actorUserId, new ApplyIncidentActionRequest { Action = "NOTIFY", Note = "Verified then rolled back." });
+    var resolved = await service.ApplyActionAsync(created.Response.AlertId, actorUserId, "TEST", new ApplyIncidentActionRequest { Action = "NOTIFY", Note = "Verified then rolled back." });
     if (!resolved.IsSuccess || resolved.Response is null || resolved.Response.Status != "RESOLVED" || resolved.Response.Phase != "DONE") throw new InvalidOperationException($"Action failed: {resolved.Error}");
 
     var events = await db.AlertTimelineEntries.CountAsync(entry => entry.AlertId == created.Response.AlertId);

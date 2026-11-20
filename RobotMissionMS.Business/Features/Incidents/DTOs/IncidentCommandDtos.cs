@@ -24,6 +24,14 @@ public sealed class ApplyIncidentActionRequest
 
     [StringLength(2000)]
     public string? Note { get; init; }
+
+    [StringLength(200)]
+    public string? Assignee { get; init; }
+
+    [StringLength(30)]
+    public string? After { get; init; }
+
+    public Guid? TargetRobotId { get; init; }
     public IReadOnlyCollection<Guid>? AffectedMissionIds { get; init; }
 }
 

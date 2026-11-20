@@ -5,7 +5,7 @@ namespace RobotMissionMS.Business.Features.Incidents.Services;
 public interface IIncidentCommandService
 {
     Task<IncidentCommandResult> CreateAsync(Guid? actorUserId, CreateIncidentRequest request, CancellationToken cancellationToken = default);
-    Task<IncidentCommandResult> ApplyActionAsync(Guid alertId, Guid actorUserId, ApplyIncidentActionRequest request, CancellationToken cancellationToken = default);
+    Task<IncidentCommandResult> ApplyActionAsync(Guid alertId, Guid actorUserId, string floor, ApplyIncidentActionRequest request, CancellationToken cancellationToken = default);
 }
 
 public enum IncidentCommandError
@@ -17,6 +17,7 @@ public enum IncidentCommandError
     ActionNotAllowed,
     InvalidPhase,
     ActorNotFound,
+    FloorForbidden,
     RelatedEntityNotFound,
     RelatedMissionNotFound,
 }

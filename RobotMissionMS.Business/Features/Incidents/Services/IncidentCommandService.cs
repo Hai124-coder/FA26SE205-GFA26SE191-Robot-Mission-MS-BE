@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Data;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.Business.Features.Incidents.DTOs;
 using RobotMissionMS.DataAccess.Entities;
@@ -44,25 +45,28 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         return IncidentCommandResult.Success(Response(alert));
     }
 
-    public async Task<IncidentCommandResult> ApplyActionAsync(Guid alertId, Guid actorUserId, ApplyIncidentActionRequest request, CancellationToken cancellationToken = default)
+    public async Task<IncidentCommandResult> ApplyActionAsync(Guid alertId, Guid actorUserId, string floor, ApplyIncidentActionRequest request, CancellationToken cancellationToken = default)
     {
-        if (alertId == Guid.Empty || actorUserId == Guid.Empty || !Valid(request) || !TryAction(request.Action, out var action) || !ValidIds(request.AffectedMissionIds))
+        if (alertId == Guid.Empty || actorUserId == Guid.Empty || string.IsNullOrWhiteSpace(floor) || !Valid(request) || !TryAction(request.Action, out var requestedAction) || !ValidIds(request.AffectedMissionIds) || !ValidSupplementalFields(requestedAction, request))
             return IncidentCommandResult.Failure(IncidentCommandError.InvalidRequest);
 
         await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken) : null;
         if (!await ActorExistsAsync(actorUserId, cancellationToken)) return IncidentCommandResult.Failure(IncidentCommandError.ActorNotFound);
-        var alert = await db.Alerts.FromSqlInterpolated($"SELECT * FROM public.\"Alerts\" WHERE \"Id\" = {alertId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
+        var alert = await db.Alerts.FromSqlInterpolated($"SELECT * FROM public.\"Alerts\" WHERE \"Id\" = {alertId} FOR UPDATE").Include(value => value.Zone).SingleOrDefaultAsync(cancellationToken);
         if (alert is null) return IncidentCommandResult.Failure(IncidentCommandError.AlertNotFound);
+        if (alert.Zone?.Code is { } incidentFloor && !string.Equals(incidentFloor, floor.Trim(), StringComparison.OrdinalIgnoreCase)) return IncidentCommandResult.Failure(IncidentCommandError.FloorForbidden);
         if (alert.Status == AlertStatus.Resolved) return IncidentCommandResult.Failure(IncidentCommandError.AlertResolved);
         if (alert.ScenarioCode is null || !IncidentContract.Rules.TryGetValue(alert.ScenarioCode, out var rule)) return IncidentCommandResult.Failure(IncidentCommandError.ScenarioNotSupported);
-        if (!CanApply(rule, alert.Phase, action)) return IncidentCommandResult.Failure(alert.Phase == IncidentPhase.Human ? IncidentCommandError.InvalidPhase : IncidentCommandError.ActionNotAllowed);
+        var action = requestedAction == IncidentAction.Accept ? alert.SuggestedAction : requestedAction;
+        if (action is null || !CanApply(rule, alert.Phase, action.Value)) return IncidentCommandResult.Failure(alert.Phase == IncidentPhase.Human ? IncidentCommandError.InvalidPhase : IncidentCommandError.ActionNotAllowed);
 
         var affectedMissionIds = MissionIds(alert.MissionId, request.AffectedMissionIds);
         if (!await MissionsExistAsync(affectedMissionIds, cancellationToken)) return IncidentCommandResult.Failure(IncidentCommandError.RelatedMissionNotFound);
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var nextPhase = NextPhase(alert.Phase, action);
-        AddTimeline(alert.Id, IncidentTimelineEventType.ActionRequested, actorUserId, now, action, null, null, TrimNote(request.Note));
+        var nextPhase = NextPhase(alert.Phase, action.Value);
+        var payloadJson = JsonSerializer.Serialize(new { assignee = TrimNote(request.Assignee), after = request.After?.Trim().ToUpperInvariant(), targetRobotId = request.TargetRobotId, resolvedAction = ActionCode(action.Value) });
+        AddTimeline(alert.Id, IncidentTimelineEventType.ActionRequested, actorUserId, now, requestedAction, null, null, TrimNote(request.Note), payloadJson);
         if (nextPhase != alert.Phase)
         {
             AddTimeline(alert.Id, IncidentTimelineEventType.PhaseChanged, actorUserId, now, null, alert.Phase, nextPhase, null);
@@ -74,10 +78,10 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
             alert.ResolvedByUserId = actorUserId;
             alert.ResolvedAt = now;
             alert.ResolutionNote = TrimNote(request.Note);
-            AddTimeline(alert.Id, IncidentTimelineEventType.Resolved, actorUserId, now, action, null, IncidentPhase.Done, alert.ResolutionNote);
+            AddTimeline(alert.Id, IncidentTimelineEventType.Resolved, actorUserId, now, requestedAction, null, IncidentPhase.Done, alert.ResolutionNote, payloadJson);
         }
         await AddMissionLinksAsync(alert.Id, affectedMissionIds, now, cancellationToken);
-        AddActivity(actorUserId, now, $"INCIDENT_ACTION_{action.ToString().ToUpperInvariant()}", alert.Id);
+        AddActivity(actorUserId, now, $"INCIDENT_ACTION_{ActionCode(requestedAction)}", alert.Id);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return IncidentCommandResult.Success(Response(alert));
@@ -92,7 +96,7 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         return tripId is not { } trip || await db.Trips.AsNoTracking().AnyAsync(value => value.Id == trip, ct);
     }
     private async Task<bool> MissionsExistAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) => ids.Count == 0 || await db.Missions.AsNoTracking().CountAsync(mission => ids.Contains(mission.Id), ct) == ids.Count;
-    private void AddTimeline(Guid alertId, IncidentTimelineEventType eventType, Guid? actorUserId, DateTime now, IncidentAction? action, IncidentPhase? fromPhase, IncidentPhase? toPhase, string? note) => db.AlertTimelineEntries.Add(new AlertTimelineEntry { Id = Guid.NewGuid(), AlertId = alertId, EventType = eventType, ActorUserId = actorUserId, OccurredAt = now, Action = action, FromPhase = fromPhase, ToPhase = toPhase, Note = note });
+    private void AddTimeline(Guid alertId, IncidentTimelineEventType eventType, Guid? actorUserId, DateTime now, IncidentAction? action, IncidentPhase? fromPhase, IncidentPhase? toPhase, string? note, string? payloadJson = null) => db.AlertTimelineEntries.Add(new AlertTimelineEntry { Id = Guid.NewGuid(), AlertId = alertId, EventType = eventType, ActorUserId = actorUserId, OccurredAt = now, Action = action, FromPhase = fromPhase, ToPhase = toPhase, Note = note, PayloadJson = payloadJson });
     private async Task AddMissionLinksAsync(Guid alertId, IReadOnlyCollection<Guid> ids, DateTime now, CancellationToken ct)
     {
         if (ids.Count == 0) return;
@@ -110,6 +114,11 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
     private static IReadOnlyCollection<Guid> MissionIds(Guid? primary, IReadOnlyCollection<Guid>? additional) => (additional ?? []).Append(primary ?? Guid.Empty).Where(id => id != Guid.Empty).Distinct().ToArray();
     private static bool ValidIds(IReadOnlyCollection<Guid>? ids) => ids is null || ids.All(id => id != Guid.Empty);
     private static bool Valid(object request) => Validator.TryValidateObject(request, new ValidationContext(request), null, true);
+    private static bool ValidSupplementalFields(IncidentAction action, ApplyIncidentActionRequest request)
+    {
+        if (action == IncidentAction.Human && string.IsNullOrWhiteSpace(request.Assignee)) return false;
+        return string.IsNullOrWhiteSpace(request.After) || (TryAction(request.After, out var after) && after is IncidentAction.Maintenance or IncidentAction.Charge);
+    }
     private static bool TryAction(string? text, out IncidentAction action)
     {
         action = default;
