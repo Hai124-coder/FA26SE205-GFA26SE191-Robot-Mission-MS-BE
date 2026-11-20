@@ -9,4 +9,5 @@ public partial class RobotMissionDbContext
     public virtual DbSet<DispatchPlanTrip> DispatchPlanTrips { get; set; }
     public virtual DbSet<DispatchPlanStop> DispatchPlanStops { get; set; }
     public virtual DbSet<DispatchPlanTask> DispatchPlanTasks { get; set; }
+    public virtual DbSet<RobotCommandOutbox> RobotCommandOutbox { get; set; }
 }

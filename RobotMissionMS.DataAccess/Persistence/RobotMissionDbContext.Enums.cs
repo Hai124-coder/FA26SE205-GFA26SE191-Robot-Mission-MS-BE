@@ -10,6 +10,7 @@ public partial class RobotMissionDbContext
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
         modelBuilder.ConfigureDispatchPlans();
+        modelBuilder.ConfigureRobotCommandOutbox();
         modelBuilder.Entity<Alert>().Property(e => e.Category).HasColumnType("alert_category");
         modelBuilder.Entity<Alert>().Property(e => e.Severity).HasColumnType("alert_severity").HasDefaultValueSql("'WARNING'::alert_severity")
             .HasSentinel((AlertSeverity)(-1));

@@ -192,6 +192,18 @@ public enum RobotState
     Maintenance,
 }
 
+public enum RobotCommandOutboxStatus
+{
+    [PgName("PENDING")]
+    Pending,
+    [PgName("PROCESSING")]
+    Processing,
+    [PgName("SENT")]
+    Sent,
+    [PgName("FAILED")]
+    Failed,
+}
+
 public enum StationStatus
 {
     [PgName("OPERATIONAL")]
