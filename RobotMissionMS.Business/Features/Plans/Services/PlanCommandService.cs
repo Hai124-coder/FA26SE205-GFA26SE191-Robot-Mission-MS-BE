@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.Business.Features.Tasks.Services;
 using RobotMissionMS.DataAccess.Entities;
@@ -158,10 +159,13 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         var assignments = plan.Tasks.Where(task => task.Status == DispatchPlanTaskStatus.Assigned && task.PlanTrip is not null).ToList();
         if (assignments.Count == 0) return PlanCommandResult.Failure(PlanCommandError.NoAssignedTasks);
         var now = clock.GetUtcNow().UtcDateTime;
+        var locationIds = assignments.SelectMany(task => task.PlanTrip!.Stops).Select(stop => stop.LocationId).Distinct().ToArray();
+        var locations = await db.Locations.AsNoTracking().Where(location => locationIds.Contains(location.Id))
+            .ToDictionaryAsync(location => location.Id, location => location.MapNodeCode, cancellationToken);
         foreach (var planTrip in assignments.Select(task => task.PlanTrip!).DistinctBy(trip => trip.Id))
         {
             var robot = await db.Robots.FromSqlInterpolated($"SELECT * FROM public.\"Robots\" WHERE \"Id\" = {planTrip.RobotId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
-            if (robot is null || robot.ZoneId != plan.ZoneId || robot.State != RobotState.Available || !robot.IsConnected) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
+            if (robot is null || robot.ZoneId != plan.ZoneId || robot.State != RobotState.Available || !robot.IsConnected || robot.Battery < 20) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
             var tasks = assignments.Where(task => task.PlanTripId == planTrip.Id).ToList();
             if (tasks.Any(task => task.Mission.Status is not MissionStatus.Pending and not MissionStatus.Rescheduled || task.Mission.TripId is not null)) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
             var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"TRP-{Guid.NewGuid():N}"[..36].ToUpperInvariant(), ZoneId = plan.ZoneId, RobotId = robot.Id, MapVersionId = planTrip.MapVersionId, DispatchedByUserId = userId, CreatedAt = now, DispatchedAt = now, Status = TripStatus.Dispatched };
@@ -173,6 +177,12 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
                 db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, ChangedAt = now, ChangedByUserId = userId, FromStatus = from, ToStatus = MissionStatus.Assigned, Reason = $"Released from dispatch plan {plan.Id:D}." });
             }
             robot.State = RobotState.OnTrip;
+            db.RobotCommandOutbox.Add(new RobotCommandOutbox
+            {
+                Id = Guid.NewGuid(), CommandType = "DISPATCH_TRIP", RobotId = robot.Id, TripId = trip.Id, PlanId = plan.Id,
+                Topic = $"rmms/v1/{robot.RobotCode}/order", PayloadJson = BuildDispatchPayload(trip, robot, planTrip, tasks, locations),
+                Status = RobotCommandOutboxStatus.Pending, AttemptCount = 0, NextAttemptAt = now, CreatedAt = now, UpdatedAt = now
+            });
         }
         plan.Status = DispatchPlanStatus.Released; plan.ReleasedAt = now; plan.ReleasedByUserId = userId; plan.Version++;
         db.ActivityLogs.Add(new ActivityLog { UserId = userId, Timestamp = now, Action = "PLAN_RELEASED", TargetObject = $"DispatchPlan:{plan.Id:D}" });
@@ -181,9 +191,27 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
 
     private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(CancellationToken ct) => db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
     private async Task<DispatchPlan?> LockDraftAsync(string floor, CancellationToken ct) => await db.DispatchPlans.FromSqlInterpolated($"SELECT p.* FROM public.\"DispatchPlans\" p JOIN public.\"Zones\" z ON z.\"Id\" = p.\"ZoneId\" WHERE p.\"Status\" = 'DRAFT'::public.dispatch_plan_status AND z.\"Code\" = {floor.Trim()} FOR UPDATE OF p")
-        .Include(plan => plan.Trips).ThenInclude(trip => trip.Stops).Include(plan => plan.Trips).ThenInclude(trip => trip.Tasks).Include(plan => plan.Tasks).ThenInclude(task => task.Mission).ThenInclude(mission => mission.MissionType).AsSplitQuery().SingleOrDefaultAsync(ct);
+        .Include(plan => plan.Trips).ThenInclude(trip => trip.Stops).Include(plan => plan.Trips).ThenInclude(trip => trip.Tasks).Include(plan => plan.Tasks).ThenInclude(task => task.Mission).ThenInclude(mission => mission.MissionType).Include(plan => plan.Tasks).ThenInclude(task => task.Mission).ThenInclude(mission => mission.Item).AsSplitQuery().SingleOrDefaultAsync(ct);
     private static bool Valid(Guid userId, string floor, long version) => userId != Guid.Empty && !string.IsNullOrWhiteSpace(floor) && version > 0;
     private static void SetWaiting(DispatchPlanTask task, string reason) { task.Status = DispatchPlanTaskStatus.Waiting; task.PlanTripId = null; task.PlanTrip = null; task.DeliveryPlanStopId = null; task.DeliveryPlanStop = null; task.SlotNo = null; task.WaitReason = reason; }
     private void RemoveEmptyTrip(DispatchPlan plan, DispatchPlanTrip? trip) { if (trip is null || trip.Tasks.Any(task => task.Status == DispatchPlanTaskStatus.Assigned)) return; db.DispatchPlanStops.RemoveRange(trip.Stops); db.DispatchPlanTrips.Remove(trip); plan.Trips.Remove(trip); }
     private void Touch(DispatchPlan plan, Guid userId, string action) { plan.ManualEditCount++; plan.Version++; db.ActivityLogs.Add(new ActivityLog { UserId = userId, Timestamp = clock.GetUtcNow().UtcDateTime, Action = action, TargetObject = $"DispatchPlan:{plan.Id:D}" }); }
+    private static string BuildDispatchPayload(Trip trip, Robot robot, DispatchPlanTrip planTrip, IReadOnlyList<DispatchPlanTask> tasks, IReadOnlyDictionary<Guid, string> nodeCodes)
+    {
+        var payload = new
+        {
+            orderId = trip.TripCode,
+            robotId = robot.RobotCode,
+            mapVersionId = trip.MapVersionId,
+            stops = planTrip.Stops.OrderBy(stop => stop.Seq).Select(stop => new
+            {
+                seq = stop.Seq,
+                nodeId = nodeCodes[stop.LocationId],
+                action = stop.Action.ToString().ToUpperInvariant(),
+                taskIds = (stop.Action == TripStopAction.Pickup ? tasks : tasks.Where(task => task.DeliveryPlanStopId == stop.Id)).Select(task => task.Mission.MissionCode).ToList()
+            }).ToList(),
+            compartments = tasks.OrderBy(task => task.SlotNo).Select(task => new { slot = task.SlotNo, taskId = task.Mission.MissionCode, item = task.Mission.ItemCodeSnapshot ?? task.Mission.Item?.Code, qty = task.Mission.Quantity }).ToList()
+        };
+        return JsonSerializer.Serialize(payload);
+    }
 }

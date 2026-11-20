@@ -21,6 +21,30 @@ username và mật khẩu từ project Supabase của bạn. Cấu hình SSL Req
 mã hóa đường truyền; khi triển khai nên cấu hình VerifyFull với chứng chỉ tin cậy
 theo hướng dẫn Supabase, thay vì bỏ qua xác minh chứng chỉ.
 
+## Cấu hình MQTT cho phát lệnh
+
+Worker phát lệnh MQTT mặc định tắt (`Mqtt:Enabled=false`) nên có thể chạy API khi
+chưa có broker. Khi tích hợp broker, đặt các giá trị nhạy cảm trong User Secrets
+hoặc biến môi trường, không đặt trong `appsettings.json`:
+
+```json
+{
+  "Mqtt": {
+    "Enabled": true,
+    "Host": "broker.example.internal",
+    "Port": 8883,
+    "UseTls": true,
+    "Username": "rmms-backend",
+    "Password": "<secret>"
+  }
+}
+```
+
+Worker gửi lệnh từ `RobotCommandOutbox` theo QoS 1. `ClientId` mặc định là
+`rmms-backend`; nếu chạy nhiều instance API, cấu hình mỗi instance một ClientId
+riêng. Có thể điều chỉnh `Mqtt:BatchSize`, `PollIntervalSeconds`, `LockSeconds`
+và `MaxAttempts` khi cần, còn các giá trị mặc định hiện là 10, 2, 30 và 5.
+
 ## Chạy và kiểm tra
 
 ```powershell

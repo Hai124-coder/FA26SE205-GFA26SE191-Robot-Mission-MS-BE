@@ -326,7 +326,7 @@ Màn SC-11 Điều phối, SC-17 Chuyến đang chạy, SC-22 Lịch sử điề
 | PATCH | /plans/current/tasks/{taskId}/priority | Operator | Đổi ưu tiên một đơn ngay trong kế hoạch; trả kế hoạch đã tính lại |
 | DELETE | /plans/current/trips/{robotId} | Operator | Bỏ một chuyến PLANNED; các đơn của chuyến đó về chờ |
 | DELETE | /plans/current | Operator | Bỏ kế hoạch |
-| POST | /plans/current/release | Operator | Phát lệnh: kiểm tra lại robot (phải còn AVAILABLE, isConnected), chuyến PLANNED → DISPATCHED, robot → ON_TRIP, nhiệm vụ → ASSIGNED, gửi MQTT order. Nếu có robot không còn sẵn sàng: 409 PLAN_STALE kèm kế hoạch mới đã lập lại |
+| POST | /plans/current/release | Operator | Phát lệnh: kiểm tra lại robot (phải còn AVAILABLE, isConnected), chuyến PLANNED → DISPATCHED, robot → ON_TRIP, nhiệm vụ → ASSIGNED, tạo MQTT order trong outbox. Nếu có robot không còn sẵn sàng: 409 PLAN_STALE kèm kế hoạch mới đã lập lại |
 | GET | /plans | Operator, Supervisor | Lịch sử các lần điều phối: giờ, người phát, tầng, nguồn, số chuyến, số đơn, số lần chỉnh tay, trễ dự kiến so với thực tế. Lọc floor, from, to |
 | GET | /plans/{planId} | Operator, Supervisor | Chi tiết một lần điều phối đã phát |
 | GET | /trips | Tất cả | Chuyến; lọc status (DISPATCHED và IN_PROGRESS cho SC-17; COMPLETED, ABORTED cho bảng chuyến đã kết thúc), kind (DELIVERY, REASSIGN, WASTE, CLEAN), robotId, floor, from, to |
@@ -340,7 +340,9 @@ Backend tự soạn kế hoạch khi một robot vừa rảnh mà còn đơn ch�
 
 Các API ghi lên bản nháp (`PATCH`, `DELETE`) bắt buộc gửi header `If-Match` bằng `Version` số nguyên nhận từ API đọc. Thành công tăng `Version` và `ManualEditCount`; phiên bản cũ trả `409 PLAN_VERSION_CONFLICT`. Chuyển nhiệm vụ sang robot kiểm tra cùng tầng, robot `AVAILABLE`/kết nối, đúng loại, còn ngăn và cùng điểm lấy; các lỗi tương ứng là `FLOOR_FORBIDDEN`, `BR-13_WRONG_TYPE`, `BR-11_SLOT_FULL`, `BR-10_PICKUP_MISMATCH`. Xóa chuyến chỉ đưa các nhiệm vụ của chuyến về `WAITING`; xóa kế hoạch chuyển nháp sang `DISCARDED` để giữ lịch sử.
 
-`POST /plans/current/release` cũng bắt buộc `If-Match`. Backend khóa lại từng robot và kiểm tra trạng thái/kết nối, rồi tạo `Trip`/`TripStop`, chuyển nhiệm vụ sang `ASSIGNED` có lịch sử trạng thái, robot sang `ON_TRIP` và kế hoạch sang `RELEASED` trong một transaction. Khi dữ liệu robot hoặc nhiệm vụ đã thay đổi, API trả `409 PLAN_STALE` và không ghi dở dang. Dự án hiện chưa có MQTT publisher hoặc outbox; việc gửi lệnh robot sẽ được bổ sung qua outbox bền vững ở bước tích hợp tiếp theo, thay vì gửi trực tiếp trong transaction database.
+`POST /plans/current/release` cũng bắt buộc `If-Match`. Backend khóa lại từng robot và kiểm tra trạng thái, kết nối và pin tối thiểu 20%, rồi tạo `Trip`/`TripStop`, chuyển nhiệm vụ sang `ASSIGNED` có lịch sử trạng thái, robot sang `ON_TRIP`, kế hoạch sang `RELEASED` và một lệnh outbox `PENDING` cho mỗi chuyến trong cùng transaction. Snapshot lệnh dùng topic `rmms/v1/{robotCode}/order`, `orderId` là `TripCode`, và giữ nguyên điểm dừng/ngăn tại thời điểm phát hành. Khi dữ liệu robot hoặc nhiệm vụ đã thay đổi, API trả `409 PLAN_STALE` và không ghi dở dang.
+
+Worker MQTT lấy từng lệnh bằng khóa `FOR UPDATE SKIP LOCKED`, gửi QoS 1 rồi chuyển lệnh sang `SENT`. Lỗi gửi được thử lại với thời gian chờ tăng dần; sau số lần `Mqtt:MaxAttempts`, lệnh thành `FAILED`, phát cảnh báo `MQTT_DISPATCH_FAILED` và ghi activity log. Trạng thái `SENT` chỉ khẳng định broker đã nhận publish; robot phải xử lý lặp an toàn theo `orderId` (`TripCode`) vì QoS 1 có thể gửi trùng khi có lỗi mạng.
 
 Trong giai đoạn schema 008–009, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` sẽ được bổ sung khi loại chuyến được lưu bền vững trong một migration riêng.
 
