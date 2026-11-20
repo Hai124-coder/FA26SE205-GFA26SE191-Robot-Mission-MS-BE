@@ -55,7 +55,11 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
         if (query.To is { } to) trips = trips.Where(value => value.CreatedAt < to.AddDays(1));
         var total = await trips.CountAsync(cancellationToken);
         var items = await trips.OrderByDescending(value => value.CreatedAt).ThenBy(value => value.TripCode).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToListAsync(cancellationToken);
-        return PlanReadResult<PagedResponse<TripListItemResponse>>.Success(new PagedResponse<TripListItemResponse> { Items = items.Select(ToTripItem).ToList(), Page = query.Page, PageSize = query.PageSize, Total = total });
+        var tripIds = items.Select(value => value.Id).ToList();
+        var dispatches = await db.RobotCommandOutbox.AsNoTracking()
+            .Where(value => tripIds.Contains(value.TripId) && value.CommandType == "DISPATCH_TRIP")
+            .ToDictionaryAsync(value => value.TripId, cancellationToken);
+        return PlanReadResult<PagedResponse<TripListItemResponse>>.Success(new PagedResponse<TripListItemResponse> { Items = items.Select(value => ToTripItem(value, dispatches.GetValueOrDefault(value.Id))).ToList(), Page = query.Page, PageSize = query.PageSize, Total = total });
     }
 
     public async Task<PlanReadResult<TripDetailResponse>> GetTripAsync(Guid id, string? operatorFloor, CancellationToken cancellationToken = default)
@@ -65,10 +69,12 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
             .SingleOrDefaultAsync(value => value.Id == id, cancellationToken);
         if (trip is null) return PlanReadResult<TripDetailResponse>.Failure(PlanReadError.NotFound);
         if (operatorFloor is not null && trip.Zone.Code != operatorFloor) return PlanReadResult<TripDetailResponse>.Failure(PlanReadError.FloorForbidden);
+        var dispatch = await db.RobotCommandOutbox.AsNoTracking().SingleOrDefaultAsync(value => value.TripId == trip.Id && value.CommandType == "DISPATCH_TRIP", cancellationToken);
         return PlanReadResult<TripDetailResponse>.Success(new TripDetailResponse
         {
             Id = trip.Id, TripCode = trip.TripCode, Status = Code(trip.Status), Floor = trip.Zone.Code, RobotId = trip.RobotId, RobotCode = trip.Robot.RobotCode,
             CreatedAt = Offset(trip.CreatedAt), DispatchedAt = Offset(trip.DispatchedAt), StartedAt = Offset(trip.StartedAt), CompletedAt = Offset(trip.CompletedAt), TaskCount = trip.Missions.Count,
+            Dispatch = ToDispatchStatus(dispatch),
             Stops = trip.TripStops.OrderBy(value => value.Seq).Select(value => new TripStopResponse { Id = value.Id, Sequence = value.Seq, Location = value.Location.Code, Action = Code(value.Action), Status = Code(value.Status), ArrivedAt = Offset(value.ArrivedAt), DepartedAt = Offset(value.DepartedAt) }).ToList(),
             Tasks = trip.Missions.OrderBy(value => value.SlotNo).ThenBy(value => value.MissionCode).Select(value => new TripTaskResponse { MissionId = value.Id, MissionCode = value.MissionCode, Status = Code(value.Status), MissionType = value.MissionType.Code, SlotNo = value.SlotNo, Department = value.ToLocation?.Code }).ToList()
         });
@@ -99,7 +105,8 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
         EstimatedDistanceM = plan.EstimatedDistanceM, BaselineDistanceM = plan.BaselineDistanceM, EstimatedDurationSec = plan.EstimatedDurationSec, BaselineDurationSec = plan.BaselineDurationSec
     };
 
-    private static TripListItemResponse ToTripItem(Trip trip) => new() { Id = trip.Id, TripCode = trip.TripCode, Status = Code(trip.Status), Floor = trip.Zone.Code, RobotId = trip.RobotId, RobotCode = trip.Robot.RobotCode, CreatedAt = Offset(trip.CreatedAt), DispatchedAt = Offset(trip.DispatchedAt), StartedAt = Offset(trip.StartedAt), CompletedAt = Offset(trip.CompletedAt), TaskCount = trip.Missions.Count };
+    private static TripListItemResponse ToTripItem(Trip trip, RobotCommandOutbox? dispatch) => new() { Id = trip.Id, TripCode = trip.TripCode, Status = Code(trip.Status), Floor = trip.Zone.Code, RobotId = trip.RobotId, RobotCode = trip.Robot.RobotCode, CreatedAt = Offset(trip.CreatedAt), DispatchedAt = Offset(trip.DispatchedAt), StartedAt = Offset(trip.StartedAt), CompletedAt = Offset(trip.CompletedAt), TaskCount = trip.Missions.Count, Dispatch = ToDispatchStatus(dispatch) };
+    private static TripDispatchStatusResponse? ToDispatchStatus(RobotCommandOutbox? dispatch) => dispatch is null ? null : new() { Status = Code(dispatch.Status), AttemptCount = dispatch.AttemptCount, NextAttemptAt = Offset(dispatch.NextAttemptAt), SentAt = Offset(dispatch.SentAt), UpdatedAt = Offset(dispatch.UpdatedAt) };
     private static bool Valid(object query) => Validator.TryValidateObject(query, new ValidationContext(query), null, true) && query switch { PlanListQuery value => !value.From.HasValue || !value.To.HasValue || value.From <= value.To, TripListQuery value => !value.From.HasValue || !value.To.HasValue || value.From <= value.To, _ => true };
     private static bool TryPlanStatuses(string? input, out IReadOnlyList<DispatchPlanStatus>? statuses) => TryEnums(input, out statuses);
     private static bool TryTripStatuses(string? input, out IReadOnlyList<TripStatus>? statuses) => TryEnums(input, out statuses);

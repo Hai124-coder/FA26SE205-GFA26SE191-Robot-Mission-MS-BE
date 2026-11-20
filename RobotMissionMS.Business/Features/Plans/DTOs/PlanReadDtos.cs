@@ -104,6 +104,16 @@ public class TripListItemResponse
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public int TaskCount { get; init; }
+    public TripDispatchStatusResponse? Dispatch { get; init; }
+}
+
+public sealed class TripDispatchStatusResponse
+{
+    public required string Status { get; init; }
+    public int AttemptCount { get; init; }
+    public DateTimeOffset NextAttemptAt { get; init; }
+    public DateTimeOffset? SentAt { get; init; }
+    public DateTimeOffset UpdatedAt { get; init; }
 }
 
 public sealed class TripDetailResponse : TripListItemResponse

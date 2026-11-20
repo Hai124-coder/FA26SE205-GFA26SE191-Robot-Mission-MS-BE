@@ -344,6 +344,8 @@ Các API ghi lên bản nháp (`PATCH`, `DELETE`) bắt buộc gửi header `If-
 
 Worker MQTT lấy từng lệnh bằng khóa `FOR UPDATE SKIP LOCKED`, gửi QoS 1 rồi chuyển lệnh sang `SENT`. Lỗi gửi được thử lại với thời gian chờ tăng dần; sau số lần `Mqtt:MaxAttempts`, lệnh thành `FAILED`, phát cảnh báo `MQTT_DISPATCH_FAILED` và ghi activity log. Trạng thái `SENT` chỉ khẳng định broker đã nhận publish; robot phải xử lý lặp an toàn theo `orderId` (`TripCode`) vì QoS 1 có thể gửi trùng khi có lỗi mạng.
 
+`GET /trips` và `GET /trips/{id}` trả thêm `dispatch` cho lệnh `DISPATCH_TRIP` của chuyến: `status`, `attemptCount`, `nextAttemptAt`, `sentAt`, `updatedAt`. `dispatch` là `null` nếu chuyến chưa phát hành hoặc chưa có dữ liệu outbox. API không trả MQTT topic, payload, thông tin khóa worker hoặc lỗi kỹ thuật thô.
+
 Trong giai đoạn schema 008–009, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` sẽ được bổ sung khi loại chuyến được lưu bền vững trong một migration riêng.
 
 
