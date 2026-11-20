@@ -346,6 +346,8 @@ Worker MQTT lấy từng lệnh bằng khóa `FOR UPDATE SKIP LOCKED`, gửi QoS
 
 `GET /trips` và `GET /trips/{id}` trả thêm `dispatch` cho lệnh `DISPATCH_TRIP` của chuyến: `status`, `attemptCount`, `nextAttemptAt`, `sentAt`, `updatedAt`. `dispatch` là `null` nếu chuyến chưa phát hành hoặc chưa có dữ liệu outbox. API không trả MQTT topic, payload, thông tin khóa worker hoặc lỗi kỹ thuật thô.
 
+Trip Execution Service nội bộ nhận các sự kiện chuẩn hóa `Started`, `Arrived`, `PickupCompleted`, `CompartmentEmpty`, `StopCompleted`, `Completed`. Service khóa chuyến, kiểm tra robot/điểm dừng/nhiệm vụ khớp nhau và ghi toàn bộ thay đổi trong một transaction: chuyến `DISPATCHED → IN_PROGRESS → COMPLETED`, nhiệm vụ `ASSIGNED → IN_PROGRESS → COMPLETED`, trạng thái/mốc thời gian điểm dừng, lịch sử nhiệm vụ và robot về `AVAILABLE`. MQTT subscriber sẽ chuyển các tin robot thành những sự kiện này khi môi trường broker/Webots sẵn sàng.
+
 Trong giai đoạn schema 008–009, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` sẽ được bổ sung khi loại chuyến được lưu bền vững trong một migration riêng.
 
 
