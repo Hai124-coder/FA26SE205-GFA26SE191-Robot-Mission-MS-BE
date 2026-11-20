@@ -118,8 +118,17 @@ public sealed class TripDispatchStatusResponse
 
 public sealed class TripDetailResponse : TripListItemResponse
 {
+    public TripCurrentStopResponse? CurrentStop { get; init; }
     public IReadOnlyList<TripStopResponse> Stops { get; init; } = [];
     public IReadOnlyList<TripTaskResponse> Tasks { get; init; } = [];
+}
+
+public sealed class TripCurrentStopResponse
+{
+    public required int Sequence { get; init; }
+    public required string Location { get; init; }
+    public required string Action { get; init; }
+    public required string Status { get; init; }
 }
 
 public sealed class TripStopResponse
@@ -140,5 +149,8 @@ public sealed class TripTaskResponse
     public required string Status { get; init; }
     public required string MissionType { get; init; }
     public int? SlotNo { get; init; }
+    public string? CompartmentStatus { get; init; }
     public string? Department { get; init; }
+    public DateTimeOffset? PickedUpAt { get; init; }
+    public DateTimeOffset? CompletedAt { get; init; }
 }

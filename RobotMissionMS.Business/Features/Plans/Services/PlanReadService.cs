@@ -75,8 +75,9 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
             Id = trip.Id, TripCode = trip.TripCode, Status = Code(trip.Status), Floor = trip.Zone.Code, RobotId = trip.RobotId, RobotCode = trip.Robot.RobotCode,
             CreatedAt = Offset(trip.CreatedAt), DispatchedAt = Offset(trip.DispatchedAt), StartedAt = Offset(trip.StartedAt), CompletedAt = Offset(trip.CompletedAt), TaskCount = trip.Missions.Count,
             Dispatch = ToDispatchStatus(dispatch),
+            CurrentStop = ToCurrentStop(trip.TripStops),
             Stops = trip.TripStops.OrderBy(value => value.Seq).Select(value => new TripStopResponse { Id = value.Id, Sequence = value.Seq, Location = value.Location.Code, Action = Code(value.Action), Status = Code(value.Status), ArrivedAt = Offset(value.ArrivedAt), DepartedAt = Offset(value.DepartedAt) }).ToList(),
-            Tasks = trip.Missions.OrderBy(value => value.SlotNo).ThenBy(value => value.MissionCode).Select(value => new TripTaskResponse { MissionId = value.Id, MissionCode = value.MissionCode, Status = Code(value.Status), MissionType = value.MissionType.Code, SlotNo = value.SlotNo, Department = value.ToLocation?.Code }).ToList()
+            Tasks = trip.Missions.OrderBy(value => value.SlotNo).ThenBy(value => value.MissionCode).Select(value => new TripTaskResponse { MissionId = value.Id, MissionCode = value.MissionCode, Status = Code(value.Status), MissionType = value.MissionType.Code, SlotNo = value.SlotNo, CompartmentStatus = CompartmentStatus(value.Status), Department = value.ToLocation?.Code, PickedUpAt = Offset(value.PickedUpAt), CompletedAt = Offset(value.CompletedAt) }).ToList()
         });
     }
 
@@ -107,6 +108,18 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
 
     private static TripListItemResponse ToTripItem(Trip trip, RobotCommandOutbox? dispatch) => new() { Id = trip.Id, TripCode = trip.TripCode, Status = Code(trip.Status), Floor = trip.Zone.Code, RobotId = trip.RobotId, RobotCode = trip.Robot.RobotCode, CreatedAt = Offset(trip.CreatedAt), DispatchedAt = Offset(trip.DispatchedAt), StartedAt = Offset(trip.StartedAt), CompletedAt = Offset(trip.CompletedAt), TaskCount = trip.Missions.Count, Dispatch = ToDispatchStatus(dispatch) };
     private static TripDispatchStatusResponse? ToDispatchStatus(RobotCommandOutbox? dispatch) => dispatch is null ? null : new() { Status = Code(dispatch.Status), AttemptCount = dispatch.AttemptCount, NextAttemptAt = Offset(dispatch.NextAttemptAt), SentAt = Offset(dispatch.SentAt), UpdatedAt = Offset(dispatch.UpdatedAt) };
+    private static TripCurrentStopResponse? ToCurrentStop(IEnumerable<TripStop> stops)
+    {
+        var stop = stops.OrderBy(value => value.Seq).FirstOrDefault(value => value.Status != TripStopStatus.Done);
+        return stop is null ? null : new TripCurrentStopResponse { Sequence = stop.Seq, Location = stop.Location.Code, Action = Code(stop.Action), Status = Code(stop.Status) };
+    }
+    private static string? CompartmentStatus(MissionStatus status) => status switch
+    {
+        MissionStatus.Assigned => "WAITING_FOR_PICKUP",
+        MissionStatus.InProgress => "ONBOARD",
+        MissionStatus.Completed => "EMPTY",
+        _ => null
+    };
     private static bool Valid(object query) => Validator.TryValidateObject(query, new ValidationContext(query), null, true) && query switch { PlanListQuery value => !value.From.HasValue || !value.To.HasValue || value.From <= value.To, TripListQuery value => !value.From.HasValue || !value.To.HasValue || value.From <= value.To, _ => true };
     private static bool TryPlanStatuses(string? input, out IReadOnlyList<DispatchPlanStatus>? statuses) => TryEnums(input, out statuses);
     private static bool TryTripStatuses(string? input, out IReadOnlyList<TripStatus>? statuses) => TryEnums(input, out statuses);

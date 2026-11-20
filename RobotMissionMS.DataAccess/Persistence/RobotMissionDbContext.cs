@@ -17,6 +17,10 @@ public partial class RobotMissionDbContext : DbContext
 
     public virtual DbSet<Alert> Alerts { get; set; }
 
+    public virtual DbSet<AlertTimelineEntry> AlertTimelineEntries { get; set; }
+
+    public virtual DbSet<AlertMission> AlertMissions { get; set; }
+
     public virtual DbSet<Batch> Batches { get; set; }
 
     public virtual DbSet<BatchRow> BatchRows { get; set; }
@@ -76,6 +80,10 @@ public partial class RobotMissionDbContext : DbContext
             .HasPostgresEnum("alert_category", new[] { "ROBOT", "MISSION", "SYSTEM" })
             .HasPostgresEnum("alert_severity", new[] { "INFO", "WARNING", "CRITICAL" })
             .HasPostgresEnum("alert_status", new[] { "OPEN", "ACKNOWLEDGED", "RESOLVED" })
+            .HasPostgresEnum("incident_phase", new[] { "SELF", "DECIDE", "HUMAN", "DONE" })
+            .HasPostgresEnum("incident_cargo_state", new[] { "ONBOARD", "PICKUP", "ROUTE", "NONE" })
+            .HasPostgresEnum("incident_action", new[] { "ACCEPT", "GO_ON", "WAIT_MORE", "GO_PARTIAL", "HUMAN", "HUMAN_DONE", "REASSIGN", "REQUEUE", "RESUME", "WAIT_CONN", "AS_FAULT", "BROKER_UP", "MAINTENANCE", "CHARGE", "NOTIFY" })
+            .HasPostgresEnum("incident_timeline_event_type", new[] { "DETECTED", "SUGGESTED", "ACTION_REQUESTED", "PHASE_CHANGED", "AUTO_RESOLVED", "RESOLVED" })
             .HasPostgresEnum("batch_source", new[] { "IMPORT", "MANUAL" })
             .HasPostgresEnum("batch_status", new[] { "DRAFT", "COMMITTED", "DISCARDED" })
             .HasPostgresEnum("charging_session_status", new[] { "CHARGING", "COMPLETED", "INTERRUPTED" })

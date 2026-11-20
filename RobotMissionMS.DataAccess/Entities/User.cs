@@ -29,6 +29,8 @@ public partial class User
 
     public virtual ICollection<Alert> AlertResolvedByUsers { get; set; } = new List<Alert>();
 
+    public virtual ICollection<AlertTimelineEntry> AlertTimelineEntries { get; set; } = new List<AlertTimelineEntry>();
+
     public virtual ICollection<Batch> Batches { get; set; } = new List<Batch>();
 
     public virtual ICollection<MapEdge> MapEdges { get; set; } = new List<MapEdge>();

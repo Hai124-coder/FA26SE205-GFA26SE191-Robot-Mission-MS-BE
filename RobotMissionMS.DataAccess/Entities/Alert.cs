@@ -32,6 +32,10 @@ public partial class Alert
 
     public string? ResolutionNote { get; set; }
 
+    public string? ScenarioCode { get; set; }
+
+    public DateTime? AutoResolvedAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public virtual User? AcknowledgedByUser { get; set; }
@@ -45,4 +49,8 @@ public partial class Alert
     public virtual Trip? Trip { get; set; }
 
     public virtual Zone? Zone { get; set; }
+
+    public virtual ICollection<AlertTimelineEntry> TimelineEntries { get; set; } = new List<AlertTimelineEntry>();
+
+    public virtual ICollection<AlertMission> AlertMissions { get; set; } = new List<AlertMission>();
 }

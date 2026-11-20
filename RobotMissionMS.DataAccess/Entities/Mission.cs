@@ -95,6 +95,8 @@ public partial class Mission
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 
+    public virtual ICollection<AlertMission> AlertMissions { get; set; } = new List<AlertMission>();
+
     public virtual Batch? Batch { get; set; }
 
     public virtual User? CreatedByUser { get; set; }

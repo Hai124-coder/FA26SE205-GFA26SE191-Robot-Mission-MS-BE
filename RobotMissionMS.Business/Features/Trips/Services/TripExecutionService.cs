@@ -45,6 +45,7 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
     {
         var start = Start(trip, at); if (!start.IsSuccess) return start;
         var stop = FindStop(trip, sequence); if (stop is null) return TripExecutionResult.Failure(TripExecutionError.StopNotFound);
+        if (trip.TripStops.Any(value => value.Seq < stop.Seq && value.Status != TripStopStatus.Done)) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
         if (stop.Status == TripStopStatus.Done) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
         stop.Status = TripStopStatus.Arrived; stop.ArrivedAt ??= at;
         return TripExecutionResult.Success();
@@ -69,6 +70,8 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
         var mission = trip.Missions.SingleOrDefault(value => value.Id == id); if (mission is null) return TripExecutionResult.Failure(TripExecutionError.MissionNotFound);
         if (mission.Status == MissionStatus.Completed) return TripExecutionResult.Success();
         if (mission.Status != MissionStatus.InProgress) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
+        if (mission.ToLocationId is null || !trip.TripStops.Any(value => value.LocationId == mission.ToLocationId && value.Action == TripStopAction.Drop && value.Status == TripStopStatus.Arrived))
+            return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
         var previous = mission.Status; mission.Status = MissionStatus.Completed; mission.CompletedAt ??= at;
         AddHistory(mission, previous, at, "ROBOT_COMPARTMENT_EMPTY");
         return TripExecutionResult.Success();
@@ -79,6 +82,8 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
         var stop = FindStop(trip, sequence); if (stop is null) return TripExecutionResult.Failure(TripExecutionError.StopNotFound);
         if (stop.Status == TripStopStatus.Done) return TripExecutionResult.Success();
         if (stop.Status != TripStopStatus.Arrived) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
+        if (stop.Action == TripStopAction.Pickup && trip.Missions.Any(value => value.Status == MissionStatus.Assigned)) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
+        if (stop.Action == TripStopAction.Drop && trip.Missions.Any(value => value.ToLocationId == stop.LocationId && value.Status != MissionStatus.Completed)) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
         stop.Status = TripStopStatus.Done; stop.DepartedAt ??= at;
         return TripExecutionResult.Success();
     }

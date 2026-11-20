@@ -32,6 +32,51 @@ public enum AlertStatus
     Resolved,
 }
 
+public enum IncidentPhase
+{
+    [PgName("SELF")] Self,
+    [PgName("DECIDE")] Decide,
+    [PgName("HUMAN")] Human,
+    [PgName("DONE")] Done,
+}
+
+public enum IncidentCargoState
+{
+    [PgName("ONBOARD")] Onboard,
+    [PgName("PICKUP")] Pickup,
+    [PgName("ROUTE")] Route,
+    [PgName("NONE")] None,
+}
+
+public enum IncidentAction
+{
+    [PgName("ACCEPT")] Accept,
+    [PgName("GO_ON")] GoOn,
+    [PgName("WAIT_MORE")] WaitMore,
+    [PgName("GO_PARTIAL")] GoPartial,
+    [PgName("HUMAN")] Human,
+    [PgName("HUMAN_DONE")] HumanDone,
+    [PgName("REASSIGN")] Reassign,
+    [PgName("REQUEUE")] Requeue,
+    [PgName("RESUME")] Resume,
+    [PgName("WAIT_CONN")] WaitConn,
+    [PgName("AS_FAULT")] AsFault,
+    [PgName("BROKER_UP")] BrokerUp,
+    [PgName("MAINTENANCE")] Maintenance,
+    [PgName("CHARGE")] Charge,
+    [PgName("NOTIFY")] Notify,
+}
+
+public enum IncidentTimelineEventType
+{
+    [PgName("DETECTED")] Detected,
+    [PgName("SUGGESTED")] Suggested,
+    [PgName("ACTION_REQUESTED")] ActionRequested,
+    [PgName("PHASE_CHANGED")] PhaseChanged,
+    [PgName("AUTO_RESOLVED")] AutoResolved,
+    [PgName("RESOLVED")] Resolved,
+}
+
 public enum BatchSource
 {
     [PgName("IMPORT")]

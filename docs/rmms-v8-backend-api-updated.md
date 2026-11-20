@@ -348,6 +348,10 @@ Worker MQTT lấy từng lệnh bằng khóa `FOR UPDATE SKIP LOCKED`, gửi QoS
 
 Trip Execution Service nội bộ nhận các sự kiện chuẩn hóa `Started`, `Arrived`, `PickupCompleted`, `CompartmentEmpty`, `StopCompleted`, `Completed`. Service khóa chuyến, kiểm tra robot/điểm dừng/nhiệm vụ khớp nhau và ghi toàn bộ thay đổi trong một transaction: chuyến `DISPATCHED → IN_PROGRESS → COMPLETED`, nhiệm vụ `ASSIGNED → IN_PROGRESS → COMPLETED`, trạng thái/mốc thời gian điểm dừng, lịch sử nhiệm vụ và robot về `AVAILABLE`. MQTT subscriber sẽ chuyển các tin robot thành những sự kiện này khi môi trường broker/Webots sẵn sàng.
 
+Sự kiện execution có thứ tự theo `seq`: chỉ đến điểm sau khi các điểm trước đã `DONE`; `COMPARTMENT_EMPTY` chỉ hợp lệ khi điểm giao đúng nhiệm vụ đang `ARRIVED`; không thể rời điểm lấy khi còn nhiệm vụ `ASSIGNED` hay rời điểm giao khi còn nhiệm vụ chưa `COMPLETED`. Bản tin lặp của bước đã hoàn tất được chấp nhận nhưng không ghi thêm lịch sử; bản tin sai thứ tự bị từ chối mà không đổi dữ liệu.
+
+`GET /trips/{id}` trả `currentStop` là điểm dừng chưa `DONE` đầu tiên, hoặc `null` khi chuyến đã xong. Mỗi nhiệm vụ trả thêm `compartmentStatus` suy ra từ trạng thái (`WAITING_FOR_PICKUP`, `ONBOARD`, `EMPTY`) cùng `pickedUpAt` và `completedAt`; các giá trị này không thay thế dữ liệu cảm biến thô.
+
 Trong giai đoạn schema 008–009, `GET /trips` hỗ trợ lọc `status`, `robotId`, `floor`, `from`, `to`; lọc `kind` sẽ được bổ sung khi loại chuyến được lưu bền vững trong một migration riêng.
 
 

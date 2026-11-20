@@ -7,6 +7,9 @@ public partial class Alert
     public AlertCategory Category { get; set; }
     public AlertSeverity Severity { get; set; }
     public AlertStatus Status { get; set; }
+    public IncidentPhase? Phase { get; set; }
+    public IncidentCargoState? CargoState { get; set; }
+    public IncidentAction? SuggestedAction { get; set; }
 }
 
 public partial class Batch

@@ -11,6 +11,10 @@ public static class DatabaseDataSource
         builder.MapEnum<AlertCategory>("public.alert_category");
         builder.MapEnum<AlertSeverity>("public.alert_severity");
         builder.MapEnum<AlertStatus>("public.alert_status");
+        builder.MapEnum<IncidentPhase>("public.incident_phase");
+        builder.MapEnum<IncidentCargoState>("public.incident_cargo_state");
+        builder.MapEnum<IncidentAction>("public.incident_action");
+        builder.MapEnum<IncidentTimelineEventType>("public.incident_timeline_event_type");
         builder.MapEnum<BatchSource>("public.batch_source");
         builder.MapEnum<BatchStatus>("public.batch_status");
         builder.MapEnum<ChargingSessionStatus>("public.charging_session_status");
