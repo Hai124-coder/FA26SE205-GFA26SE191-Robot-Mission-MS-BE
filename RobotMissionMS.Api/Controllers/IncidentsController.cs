@@ -37,6 +37,7 @@ public sealed class IncidentsController(IIncidentCommandService commands) : Cont
         IncidentCommandError.ActorNotFound => Problem(type: "INCIDENT_ACTOR_NOT_FOUND", statusCode: StatusCodes.Status401Unauthorized),
         IncidentCommandError.FloorForbidden => Problem(type: "FLOOR_FORBIDDEN", statusCode: StatusCodes.Status403Forbidden),
         IncidentCommandError.RelatedEntityNotFound or IncidentCommandError.RelatedMissionNotFound => Problem(type: "INCIDENT_RELATED_RESOURCE_NOT_FOUND", statusCode: StatusCodes.Status404NotFound),
+        IncidentCommandError.MissionNotActionable => Problem(type: "INCIDENT_MISSION_NOT_ACTIONABLE", statusCode: StatusCodes.Status409Conflict),
         IncidentCommandError.AlertResolved => Problem(type: "INCIDENT_ALREADY_RESOLVED", statusCode: StatusCodes.Status409Conflict),
         IncidentCommandError.ActionNotAllowed or IncidentCommandError.InvalidPhase => Problem(type: "ACTION_NOT_ALLOWED", statusCode: StatusCodes.Status409Conflict),
         IncidentCommandError.ScenarioNotSupported => Problem(type: "INCIDENT_SCENARIO_NOT_SUPPORTED", statusCode: StatusCodes.Status409Conflict),

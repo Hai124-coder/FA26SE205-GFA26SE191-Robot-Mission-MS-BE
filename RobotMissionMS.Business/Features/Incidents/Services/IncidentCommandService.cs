@@ -60,11 +60,16 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         var action = requestedAction == IncidentAction.Accept ? alert.SuggestedAction : requestedAction;
         if (action is null || !CanApply(rule, alert.Phase, action.Value)) return IncidentCommandResult.Failure(alert.Phase == IncidentPhase.Human ? IncidentCommandError.InvalidPhase : IncidentCommandError.ActionNotAllowed);
 
-        var affectedMissionIds = MissionIds(alert.MissionId, request.AffectedMissionIds);
+        var linkedMissionIds = await db.AlertMissions.AsNoTracking().Where(link => link.AlertId == alert.Id).Select(link => link.MissionId).ToListAsync(cancellationToken);
+        var affectedMissionIds = linkedMissionIds.Append(alert.MissionId ?? Guid.Empty).Concat(request.AffectedMissionIds ?? []).Where(id => id != Guid.Empty).Distinct().ToArray();
         if (!await MissionsExistAsync(affectedMissionIds, cancellationToken)) return IncidentCommandResult.Failure(IncidentCommandError.RelatedMissionNotFound);
+        if (request.TargetRobotId is { } targetRobotId && !await db.Robots.AsNoTracking().AnyAsync(robot => robot.Id == targetRobotId, cancellationToken))
+            return IncidentCommandResult.Failure(IncidentCommandError.RelatedEntityNotFound);
 
         var now = clock.GetUtcNow().UtcDateTime;
         var nextPhase = NextPhase(alert.Phase, action.Value);
+        var effectError = await ApplyMissionEffectsAsync(action.Value, affectedMissionIds, actorUserId, now, request, cancellationToken);
+        if (effectError is { } error) return IncidentCommandResult.Failure(error);
         var payloadJson = JsonSerializer.Serialize(new { assignee = TrimNote(request.Assignee), after = request.After?.Trim().ToUpperInvariant(), targetRobotId = request.TargetRobotId, resolvedAction = ActionCode(action.Value) });
         AddTimeline(alert.Id, IncidentTimelineEventType.ActionRequested, actorUserId, now, requestedAction, null, null, TrimNote(request.Note), payloadJson);
         if (nextPhase != alert.Phase)
@@ -96,6 +101,55 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         return tripId is not { } trip || await db.Trips.AsNoTracking().AnyAsync(value => value.Id == trip, ct);
     }
     private async Task<bool> MissionsExistAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) => ids.Count == 0 || await db.Missions.AsNoTracking().CountAsync(mission => ids.Contains(mission.Id), ct) == ids.Count;
+    private async Task<IncidentCommandError?> ApplyMissionEffectsAsync(IncidentAction action, IReadOnlyCollection<Guid> missionIds, Guid actorUserId, DateTime now, ApplyIncidentActionRequest request, CancellationToken ct)
+    {
+        if (action is not (IncidentAction.HumanDone or IncidentAction.GoOn or IncidentAction.GoPartial or IncidentAction.Requeue) || missionIds.Count == 0) return null;
+        var missions = await db.Missions.FromSqlInterpolated($"SELECT * FROM public.\"Missions\" WHERE \"Id\" = ANY({missionIds.ToArray()}) FOR UPDATE").ToListAsync(ct);
+        var targetStatus = action switch
+        {
+            IncidentAction.HumanDone => MissionStatus.CompletedByHuman,
+            IncidentAction.GoOn => MissionStatus.DeliveryFailed,
+            _ => MissionStatus.Rescheduled
+        };
+        if (missions.Any(mission => mission.Status is MissionStatus.Completed or MissionStatus.CompletedByHuman or MissionStatus.Cancelled))
+            return IncidentCommandError.MissionNotActionable;
+
+        foreach (var mission in missions)
+        {
+            var from = mission.Status;
+            mission.Status = targetStatus;
+            if (targetStatus is MissionStatus.Rescheduled)
+            {
+                mission.TripId = null;
+                mission.SlotNo = null;
+                mission.StartedAt = null;
+                mission.FailReason = null;
+                mission.FailNote = null;
+            }
+            if (targetStatus is MissionStatus.CompletedByHuman)
+            {
+                mission.CompletedAt ??= now;
+                mission.FailReason = null;
+                mission.FailNote = null;
+            }
+            if (targetStatus is MissionStatus.DeliveryFailed)
+            {
+                mission.FailReason = MissionFailReason.NoRecipient;
+                mission.FailNote = string.IsNullOrWhiteSpace(request.Note) ? "Recipient absent." : request.Note.Trim();
+            }
+            var reason = action switch
+            {
+                IncidentAction.HumanDone => $"Completed by human after incident; assignee: {request.Assignee?.Trim() ?? "unspecified"}.",
+                IncidentAction.GoOn => mission.FailNote!,
+                IncidentAction.GoPartial => "Insufficient pickup quantity; returned to queue by incident action.",
+                IncidentAction.Requeue => "Returned to queue by incident action.",
+                _ => "Incident action applied."
+            };
+            db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, FromStatus = from, ToStatus = targetStatus, ChangedByUserId = actorUserId, ChangedAt = now, Reason = reason });
+            db.ActivityLogs.Add(new ActivityLog { UserId = actorUserId, Timestamp = now, Action = $"MISSION_{targetStatus.ToString().ToUpperInvariant()}_BY_INCIDENT", TargetObject = $"Mission:{mission.Id:D}" });
+        }
+        return null;
+    }
     private void AddTimeline(Guid alertId, IncidentTimelineEventType eventType, Guid? actorUserId, DateTime now, IncidentAction? action, IncidentPhase? fromPhase, IncidentPhase? toPhase, string? note, string? payloadJson = null) => db.AlertTimelineEntries.Add(new AlertTimelineEntry { Id = Guid.NewGuid(), AlertId = alertId, EventType = eventType, ActorUserId = actorUserId, OccurredAt = now, Action = action, FromPhase = fromPhase, ToPhase = toPhase, Note = note, PayloadJson = payloadJson });
     private async Task AddMissionLinksAsync(Guid alertId, IReadOnlyCollection<Guid> ids, DateTime now, CancellationToken ct)
     {
@@ -107,8 +161,8 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
     private static bool CanApply(IncidentRule rule, IncidentPhase? phase, IncidentAction action) => phase == IncidentPhase.Human ? action == IncidentAction.HumanDone : phase == IncidentPhase.Decide && rule.AllowedActions.Contains(action);
     private static IncidentPhase? NextPhase(IncidentPhase? current, IncidentAction action) => action switch
     {
-        IncidentAction.Human or IncidentAction.Reassign or IncidentAction.Requeue or IncidentAction.AsFault => IncidentPhase.Human,
-        IncidentAction.HumanDone or IncidentAction.GoOn or IncidentAction.GoPartial or IncidentAction.Resume or IncidentAction.Notify or IncidentAction.BrokerUp or IncidentAction.Accept => IncidentPhase.Done,
+        IncidentAction.Human or IncidentAction.Reassign or IncidentAction.AsFault => IncidentPhase.Human,
+        IncidentAction.HumanDone or IncidentAction.GoOn or IncidentAction.GoPartial or IncidentAction.Requeue or IncidentAction.Resume or IncidentAction.Notify or IncidentAction.BrokerUp or IncidentAction.Accept => IncidentPhase.Done,
         _ => current
     };
     private static IReadOnlyCollection<Guid> MissionIds(Guid? primary, IReadOnlyCollection<Guid>? additional) => (additional ?? []).Append(primary ?? Guid.Empty).Where(id => id != Guid.Empty).Distinct().ToArray();

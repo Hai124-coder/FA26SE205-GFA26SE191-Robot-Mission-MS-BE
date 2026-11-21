@@ -20,6 +20,7 @@ public enum IncidentCommandError
     FloorForbidden,
     RelatedEntityNotFound,
     RelatedMissionNotFound,
+    MissionNotActionable,
 }
 
 public sealed class IncidentCommandResult
