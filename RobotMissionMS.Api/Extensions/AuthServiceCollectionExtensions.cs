@@ -57,6 +57,8 @@ public static class AuthServiceCollectionExtensions
                 policy.RequireAuthenticatedUser().RequireRole("OPERATOR", "ADMIN"));
             options.AddPolicy(AuthPolicies.OperationsRead, policy =>
                 policy.RequireAuthenticatedUser().RequireRole("OPERATOR", "SUPERVISOR", "ADMIN"));
+            options.AddPolicy(AuthPolicies.SupervisorOnly, policy =>
+                policy.RequireAuthenticatedUser().RequireRole("SUPERVISOR"));
         });
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer();
