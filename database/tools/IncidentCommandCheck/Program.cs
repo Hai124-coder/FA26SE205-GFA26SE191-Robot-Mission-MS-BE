@@ -18,6 +18,7 @@ await using var transaction = await db.Database.BeginTransactionAsync();
 try
 {
     var service = new IncidentCommandService(db, TimeProvider.System);
+    var reader = new IncidentReadService(db);
     var created = await service.CreateAsync(actorUserId, new CreateIncidentRequest { ScenarioCode = "E1", Message = "Rollback-only incident command verification." });
     if (!created.IsSuccess || created.Response is null || created.Response.Phase != "DECIDE") throw new InvalidOperationException($"Create failed: {created.Error}");
 
@@ -53,6 +54,9 @@ try
     if (!humanIncident.IsSuccess || humanIncident.Response is null) throw new InvalidOperationException($"B2 create failed: {humanIncident.Error}");
     var handedOver = await service.ApplyActionAsync(humanIncident.Response.AlertId, actorUserId, zone.Code, new ApplyIncidentActionRequest { Action = "HUMAN", Assignee = "Rollback checker" });
     if (!handedOver.IsSuccess || handedOver.Response?.Phase != "HUMAN") throw new InvalidOperationException($"HUMAN failed: {handedOver.Error}");
+    var humanDetail = await reader.GetIncidentAsync(humanIncident.Response.AlertId, zone.Code);
+    if (!humanDetail.IsSuccess || humanDetail.Response is null || !humanDetail.Response.AllowedActions.SequenceEqual(["HUMAN_DONE"]) || humanDetail.Response.Missions.Count != 1)
+        throw new InvalidOperationException("Incident detail did not expose the expected HUMAN action and mission.");
     var humanDone = await service.ApplyActionAsync(humanIncident.Response.AlertId, actorUserId, zone.Code, new ApplyIncidentActionRequest { Action = "HUMAN_DONE", After = "MAINTENANCE" });
     if (!humanDone.IsSuccess || humanDone.Response?.Status != "RESOLVED") throw new InvalidOperationException($"HUMAN_DONE failed: {humanDone.Error}");
     var completedMission = await db.Missions.SingleAsync(value => value.Id == humanMission.Id);
@@ -69,7 +73,18 @@ try
     var partial = await service.ApplyActionAsync(partialIncident.Response.AlertId, actorUserId, zone.Code, new ApplyIncidentActionRequest { Action = "GO_PARTIAL" });
     if (!partial.IsSuccess || partial.Response?.Status != "RESOLVED" || (await db.Missions.SingleAsync(value => value.Id == partialMission.Id)).Status != MissionStatus.Rescheduled) throw new InvalidOperationException($"GO_PARTIAL failed: {partial.Error}");
 
-    Console.WriteLine("incident-command=verified notify,requeue,human-done,go-on,go-partial rollback=planned");
+    var filtered = await reader.GetIncidentsAsync(new IncidentListQuery { Status = "RESOLVED", Floor = "IGNORED", PageSize = 100 }, zone.Code);
+    if (!filtered.IsSuccess || filtered.Response is null || filtered.Response.Items.Count < 4 || filtered.Response.Items.Any(value => value.Floor is not null && value.Floor != zone.Code))
+        throw new InvalidOperationException("Incident list did not apply the operator floor scope.");
+    var forbidden = await reader.GetIncidentAsync(requeueIncident.Response.AlertId, "OTHER_FLOOR");
+    var systemVisible = await reader.GetIncidentAsync(created.Response.AlertId, "OTHER_FLOOR");
+    if (forbidden.Error != IncidentReadError.FloorForbidden || !systemVisible.IsSuccess)
+        throw new InvalidOperationException("Incident detail did not enforce floor scope while retaining system alerts.");
+    var stats = await reader.GetStatsAsync(new IncidentStatsQuery(), zone.Code);
+    if (!stats.IsSuccess || stats.Response is null || stats.Response.ResolvedCount < 4 || stats.Response.HumanCompletedMissionCount < 1)
+        throw new InvalidOperationException("Incident stats did not include the resolved incidents and human completion.");
+
+    Console.WriteLine("incident-command=verified actions,read-list,detail,stats,floor-scope rollback=planned");
 }
 
 finally
