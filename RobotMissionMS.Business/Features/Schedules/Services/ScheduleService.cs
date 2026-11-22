@@ -30,17 +30,20 @@ public sealed class ScheduleService(RobotMissionDbContext db) : IScheduleService
         var locations = await LocationsAsync(request.Stops, zone.Id, ct);
         if (locations is null) return null;
 
-        var schedule = new MissionSchedule { Id = Guid.NewGuid(), Name = request.Name.Trim(), MissionTypeId = type.Id, ZoneId = zone.Id, DaysOfWeek = request.DaysOfWeek, RunTime = time, IsActive = request.IsActive, CreatedByUserId = user, CreatedAt = DateTime.UtcNow };
+        var now = DateTime.UtcNow;
+        var schedule = new MissionSchedule { Id = Guid.NewGuid(), Name = request.Name.Trim(), MissionTypeId = type.Id, ZoneId = zone.Id, DaysOfWeek = request.DaysOfWeek, RunTime = time, IsActive = request.IsActive, CreatedByUserId = user, CreatedAt = now };
         AddStops(schedule, locations, request.Stops);
         db.MissionSchedules.Add(schedule);
+        AddActivity(user, now, "SCHEDULE_CREATED", ScheduleTarget(schedule.Id));
         await db.SaveChangesAsync(ct);
-        return Map(schedule, null, DateTime.UtcNow, type.Code, zone.Code, locations);
+        return Map(schedule, null, now, type.Code, zone.Code, locations);
     }
 
     public async Task<ScheduleResponse?> UpdateAsync(Guid id, Guid user, string floor, ScheduleRequest request, CancellationToken ct = default)
     {
         if (!Valid(request, out var time)) return null;
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var ownsTransaction = db.Database.CurrentTransaction is null;
+        await using var transaction = ownsTransaction ? await db.Database.BeginTransactionAsync(ct) : null;
         var schedule = await db.MissionSchedules.Include(x => x.Zone).Include(x => x.MissionType).Include(x => x.MissionScheduleStops).ThenInclude(x => x.Location)
             .SingleOrDefaultAsync(x => x.Id == id && x.Zone.Code == floor && x.DeletedAt == null, ct);
         if (schedule is null) return null;
@@ -48,29 +51,35 @@ public sealed class ScheduleService(RobotMissionDbContext db) : IScheduleService
         var locations = await LocationsAsync(request.Stops, schedule.ZoneId, ct);
         if (type is null || locations is null || request.MissionTypeCode is not ("WASTE_COLLECTION" or "CORRIDOR_CLEANING")) return null;
 
+        var now = DateTime.UtcNow;
         schedule.Name = request.Name.Trim(); schedule.MissionTypeId = type.Id; schedule.RunTime = time; schedule.DaysOfWeek = request.DaysOfWeek; schedule.IsActive = request.IsActive;
         db.MissionScheduleStops.RemoveRange(schedule.MissionScheduleStops);
         AddStops(schedule, locations, request.Stops);
+        AddActivity(user, now, "SCHEDULE_UPDATED", ScheduleTarget(schedule.Id));
         await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return Map(schedule, null, DateTime.UtcNow, type.Code, schedule.Zone.Code, locations);
+        if (ownsTransaction) await transaction!.CommitAsync(ct);
+        return Map(schedule, null, now, type.Code, schedule.Zone.Code, locations);
     }
 
-    public async Task<bool?> SetStatusAsync(Guid id, string floor, bool active, CancellationToken ct = default)
+    public async Task<bool?> SetStatusAsync(Guid id, Guid user, string floor, bool active, CancellationToken ct = default)
     {
         var schedule = await db.MissionSchedules.SingleOrDefaultAsync(x => x.Id == id && x.Zone.Code == floor && x.DeletedAt == null, ct);
         if (schedule is null) return null;
+        if (schedule.IsActive == active) return true;
         schedule.IsActive = active;
+        AddActivity(user, DateTime.UtcNow, "SCHEDULE_STATUS_CHANGED", ScheduleTarget(schedule.Id));
         await db.SaveChangesAsync(ct);
         return true;
     }
 
-    public async Task<bool?> DeleteAsync(Guid id, string floor, CancellationToken ct = default)
+    public async Task<bool?> DeleteAsync(Guid id, Guid user, string floor, CancellationToken ct = default)
     {
         var schedule = await db.MissionSchedules.SingleOrDefaultAsync(x => x.Id == id && x.Zone.Code == floor && x.DeletedAt == null, ct);
         if (schedule is null) return null;
         if (await db.MissionScheduleRuns.AnyAsync(x => x.ScheduleId == id && (x.Status == ScheduleRunStatus.WaitingForRobot || x.Status == ScheduleRunStatus.Late), ct)) return false;
-        schedule.DeletedAt = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        schedule.DeletedAt = now;
+        AddActivity(user, now, "SCHEDULE_DELETED", ScheduleTarget(schedule.Id));
         await db.SaveChangesAsync(ct);
         return true;
     }
@@ -86,8 +95,10 @@ public sealed class ScheduleService(RobotMissionDbContext db) : IScheduleService
         if (await db.MissionScheduleRuns.AnyAsync(x => x.ScheduleId == id && (x.Status == ScheduleRunStatus.WaitingForRobot || x.Status == ScheduleRunStatus.Late), ct)) return ScheduleRunResult.Failure(ScheduleRunError.RunInProgress);
 
         var snapshot = System.Text.Json.JsonSerializer.Serialize(new { missionTypeCode = schedule.MissionType.Code, floor = schedule.Zone.Code, stops = schedule.MissionScheduleStops.OrderBy(x => x.Seq).Select(x => new { x.Seq, x.Location.Code }) });
-        var run = new MissionScheduleRun { Id = Guid.NewGuid(), ScheduleId = id, ScheduledFor = DateTime.UtcNow, IsManual = true, IdempotencyKey = key, RequestedByUserId = user, Status = ScheduleRunStatus.WaitingForRobot, RouteSnapshot = snapshot, CreatedAt = DateTime.UtcNow };
+        var now = DateTime.UtcNow;
+        var run = new MissionScheduleRun { Id = Guid.NewGuid(), ScheduleId = id, ScheduledFor = now, IsManual = true, IdempotencyKey = key, RequestedByUserId = user, Status = ScheduleRunStatus.WaitingForRobot, RouteSnapshot = snapshot, CreatedAt = now };
         db.MissionScheduleRuns.Add(run);
+        AddActivity(user, now, "SCHEDULE_RUN_REQUESTED", RunTarget(run.Id));
         await db.SaveChangesAsync(ct);
         return ScheduleRunResult.Success(new ScheduleRunResponse { RunId = run.Id, Status = StatusCode(run.Status), Replayed = false });
     }
@@ -128,4 +139,7 @@ public sealed class ScheduleService(RobotMissionDbContext db) : IScheduleService
     }
     private static TimeZoneInfo VietnamTimeZone() { try { return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); } catch (TimeZoneNotFoundException) { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); } }
     private static string StatusCode(ScheduleRunStatus status) => status switch { ScheduleRunStatus.WaitingForRobot => "WAITING_FOR_ROBOT", ScheduleRunStatus.MissionCreated => "MISSION_CREATED", _ => status.ToString().ToUpperInvariant() };
+    private void AddActivity(Guid? user, DateTime timestamp, string action, string target) => db.ActivityLogs.Add(new ActivityLog { UserId = user, Timestamp = timestamp, Action = action, TargetObject = target });
+    private static string ScheduleTarget(Guid id) => $"Schedule:{id:D}";
+    private static string RunTarget(Guid id) => $"ScheduleRun:{id:D}";
 }

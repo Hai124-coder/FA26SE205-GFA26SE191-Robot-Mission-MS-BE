@@ -39,9 +39,8 @@ public sealed class SchedulesController(IScheduleService service) : ControllerBa
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
     public async Task<IActionResult> SetStatus(Guid id, [FromBody] ScheduleStatusRequest request, CancellationToken cancellationToken)
     {
-        var floor = OperatorFloor();
-        if (string.IsNullOrWhiteSpace(floor)) return Unauthorized();
-        var result = await service.SetStatusAsync(id, floor, request.IsActive, cancellationToken);
+        if (!TryGetOperator(out var userId, out var floor)) return Unauthorized();
+        var result = await service.SetStatusAsync(id, userId, floor, request.IsActive, cancellationToken);
         return result is null ? NotFound() : Ok();
     }
 
@@ -49,9 +48,8 @@ public sealed class SchedulesController(IScheduleService service) : ControllerBa
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var floor = OperatorFloor();
-        if (string.IsNullOrWhiteSpace(floor)) return Unauthorized();
-        var result = await service.DeleteAsync(id, floor, cancellationToken);
+        if (!TryGetOperator(out var userId, out var floor)) return Unauthorized();
+        var result = await service.DeleteAsync(id, userId, floor, cancellationToken);
         return result switch { null => NotFound(), true => NoContent(), false => Conflict(new { type = "SCHEDULE_HAS_OPEN_RUN" }) };
     }
 

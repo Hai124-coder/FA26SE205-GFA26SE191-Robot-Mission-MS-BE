@@ -61,6 +61,7 @@ public sealed class ScheduleWorker(IServiceScopeFactory scopes, ILogger<Schedule
                     })
                 };
                 db.MissionScheduleRuns.Add(run);
+                db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "SCHEDULE_RUN_CREATED", TargetObject = $"ScheduleRun:{run.Id:D}" });
                 await db.SaveChangesAsync(ct);
             }
         }

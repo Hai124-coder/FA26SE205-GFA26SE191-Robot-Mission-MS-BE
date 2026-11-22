@@ -47,6 +47,7 @@ public sealed class ScheduledRouteDispatchService(RobotMissionDbContext db)
         db.Missions.Add(mission); db.Trips.Add(trip);
         db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, ChangedAt = now,
             FromStatus = MissionStatus.Pending, ToStatus = MissionStatus.Assigned, Reason = "Scheduled route trip created." });
+        db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "SCHEDULE_RUN_MISSION_CREATED", TargetObject = $"ScheduleRun:{run.Id:D}" });
         await db.SaveChangesAsync(cancellationToken); if (ownsTransaction) await transaction!.CommitAsync(cancellationToken);
         return ScheduledRouteDispatchResult.Created;
     }

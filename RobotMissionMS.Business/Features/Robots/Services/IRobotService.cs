@@ -33,14 +33,14 @@ public interface IRobotService
     /// Creates a new robot with State = INACTIVE and IsConnected = false.
     /// </summary>
     Task<CreateRobotResult> CreateRobotAsync(
-        CreateRobotRequest request,
+        Guid actorUserId, CreateRobotRequest request,
         CancellationToken  cancellationToken = default);
 
     /// <summary>
     /// Updates HomeChargingStationId of a robot. Admin only.
     /// </summary>
     Task<UpdateRobotResult> UpdateRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         UpdateRobotRequest request,
         CancellationToken  cancellationToken = default);
 
@@ -48,41 +48,41 @@ public interface IRobotService
     /// Soft-deletes a robot (sets State = INACTIVE). Refused if robot is on an active trip.
     /// </summary>
     Task<DeleteRobotResult> DeleteRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Suspends a robot so it finishes its current trip then stops accepting new ones.
     /// </summary>
     Task<SuspendRobotResult> SuspendRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Resumes a suspended robot so it can accept new trips again.
     /// </summary>
     Task<ResumeRobotResult> ResumeRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Sends an idle (AVAILABLE) robot to its charging station.
     /// </summary>
     Task<ChargeRobotResult> ChargeRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Puts a robot into maintenance mode. Robot must not be on an active trip.
     /// </summary>
     Task<MaintenanceRobotResult> MaintenanceRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns a robot from maintenance back to service (State = AVAILABLE).
     /// </summary>
     Task<BackToServiceRobotResult> BackToServiceAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default);
 }

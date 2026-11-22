@@ -207,7 +207,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     };
 
     public async Task<CreateRobotResult> CreateRobotAsync(
-        CreateRobotRequest request,
+        Guid actorUserId, CreateRobotRequest request,
         CancellationToken  cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -236,6 +236,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
             typeId.Value,
             zoneId.Value,
             request.HomeChargingStationId,
+            actorUserId,
             cancellationToken);
 
         if (!repoResult.IsSuccess)
@@ -259,7 +260,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<UpdateRobotResult> UpdateRobotAsync(
-        Guid               robotId,
+        Guid actorUserId, Guid robotId,
         UpdateRobotRequest request,
         CancellationToken  cancellationToken = default)
     {
@@ -273,7 +274,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
                 return UpdateRobotResult.Failure(UpdateRobotError.HomeStationNotFound);
         }
 
-        var row = await repository.UpdateRobotAsync(robotId, request.HomeChargingStationId, cancellationToken);
+        var row = await repository.UpdateRobotAsync(robotId, request.HomeChargingStationId, actorUserId, cancellationToken);
         if (row is null)
             return UpdateRobotResult.Failure(UpdateRobotError.NotFound);
 
@@ -294,10 +295,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<DeleteRobotResult> DeleteRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.DeleteRobotAsync(robotId, cancellationToken);
+        var repoResult = await repository.DeleteRobotAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess)
             return DeleteRobotResult.Success();
 
@@ -310,10 +311,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<SuspendRobotResult> SuspendRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.SuspendRobotAsync(robotId, cancellationToken);
+        var repoResult = await repository.SuspendRobotAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess) return SuspendRobotResult.Success();
         return repoResult.Error switch
         {
@@ -324,10 +325,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<ResumeRobotResult> ResumeRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.ResumeRobotAsync(robotId, cancellationToken);
+        var repoResult = await repository.ResumeRobotAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess) return ResumeRobotResult.Success();
         return repoResult.Error switch
         {
@@ -338,10 +339,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<ChargeRobotResult> ChargeRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.ChargeRobotAsync(robotId, cancellationToken);
+        var repoResult = await repository.ChargeRobotAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess) return ChargeRobotResult.Success();
         return repoResult.Error switch
         {
@@ -352,10 +353,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<MaintenanceRobotResult> MaintenanceRobotAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.MaintenanceRobotAsync(robotId, cancellationToken);
+        var repoResult = await repository.MaintenanceRobotAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess) return MaintenanceRobotResult.Success();
         return repoResult.Error switch
         {
@@ -367,10 +368,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     }
 
     public async Task<BackToServiceRobotResult> BackToServiceAsync(
-        Guid              robotId,
+        Guid actorUserId, Guid robotId,
         CancellationToken cancellationToken = default)
     {
-        var repoResult = await repository.BackToServiceAsync(robotId, cancellationToken);
+        var repoResult = await repository.BackToServiceAsync(robotId, actorUserId, cancellationToken);
         if (repoResult.IsSuccess) return BackToServiceRobotResult.Success();
         return repoResult.Error switch
         {

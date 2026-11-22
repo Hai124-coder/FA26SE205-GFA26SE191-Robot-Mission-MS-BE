@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RobotMissionMS.Api.Authorization;
@@ -105,7 +107,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         [FromBody] CreateRobotRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.CreateRobotAsync(request, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.CreateRobotAsync(actorUserId, request, cancellationToken);
         if (result.IsSuccess)
             return CreatedAtAction(
                 nameof(GetRobotById),
@@ -154,7 +157,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         [FromBody] UpdateRobotRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.UpdateRobotAsync(id, request, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.UpdateRobotAsync(actorUserId, id, request, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
 
@@ -187,7 +191,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.DeleteRobotAsync(id, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.DeleteRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -220,7 +225,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.SuspendRobotAsync(id, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.SuspendRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -253,7 +259,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.ResumeRobotAsync(id, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.ResumeRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -285,7 +292,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await chargingSessions.QueueToHomeStationAsync(id, DateTime.UtcNow, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await chargingSessions.QueueToHomeStationAsync(id, actorUserId, DateTime.UtcNow, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -330,7 +338,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.MaintenanceRobotAsync(id, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.MaintenanceRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -367,7 +376,8 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.BackToServiceAsync(id, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotService.BackToServiceAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
@@ -384,4 +394,5 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
             _ => throw new InvalidOperationException("Robot service returned an invalid back-to-service result.")
         };
     }
+    private bool TryGetActor(out Guid userId) => Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out userId);
 }

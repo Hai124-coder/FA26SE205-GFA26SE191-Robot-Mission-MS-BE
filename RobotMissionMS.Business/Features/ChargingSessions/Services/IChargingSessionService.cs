@@ -6,8 +6,8 @@ namespace RobotMissionMS.Business.Features.ChargingSessions.Services;
 public interface IChargingSessionService
 {
     Task<ChargingSessionListResult> ListAsync(ChargingSessionListQuery query, string? operatorFloor, CancellationToken cancellationToken = default);
-    Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, DateTime now, CancellationToken cancellationToken = default);
-    Task<ChargingSessionCommandResult> QueueAsync(Guid robotId, Guid stationId, DateTime now, CancellationToken cancellationToken = default);
+    Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, Guid? actorUserId, DateTime now, CancellationToken cancellationToken = default);
+    Task<ChargingSessionCommandResult> QueueAsync(Guid robotId, Guid stationId, Guid? actorUserId, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> StartAsync(Guid sessionId, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> CompleteAsync(Guid sessionId, int batteryAtEnd, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> InterruptAsync(Guid sessionId, int batteryAtEnd, DateTime now, CancellationToken cancellationToken = default);

@@ -31,7 +31,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         });
     }
 
-    public async Task<ChargingSessionCommandResult> QueueAsync(Guid robotId, Guid stationId, DateTime now, CancellationToken cancellationToken = default)
+    public async Task<ChargingSessionCommandResult> QueueAsync(Guid robotId, Guid stationId, Guid? actorUserId, DateTime now, CancellationToken cancellationToken = default)
     {
         var ownsTransaction = db.Database.CurrentTransaction is null;
         await using var transaction = ownsTransaction ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
@@ -48,13 +48,14 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         var session = new ChargingSession { Id = Guid.NewGuid(), RobotId = robotId, ChargingStationId = stationId, QueuedAt = now, Status = ChargingSessionStatus.Queued };
         robot.State = RobotState.OnTrip;
         db.ChargingSessions.Add(session);
+        db.ActivityLogs.Add(new ActivityLog { UserId = actorUserId, Timestamp = now, Action = "CHARGING_SESSION_QUEUED", TargetObject = $"ChargingSession:{session.Id:D}" });
         await db.SaveChangesAsync(cancellationToken);
         if (ownsTransaction) await transaction!.CommitAsync(cancellationToken);
         session.Robot = robot; session.ChargingStation = station;
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
     }
 
-    public async Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, DateTime now, CancellationToken cancellationToken = default)
+    public async Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, Guid? actorUserId, DateTime now, CancellationToken cancellationToken = default)
     {
         var stationId = await db.Robots.AsNoTracking().Where(x => x.Id == robotId)
             .Select(x => (Guid?)x.HomeChargingStationId).SingleOrDefaultAsync(cancellationToken);
@@ -63,7 +64,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
             var robotExists = await db.Robots.AsNoTracking().AnyAsync(x => x.Id == robotId, cancellationToken);
             return ChargingSessionCommandResult.Failure(robotExists ? ChargingSessionCommandError.RobotHasNoHomeStation : ChargingSessionCommandError.RobotNotFound);
         }
-        return await QueueAsync(robotId, stationId.Value, now, cancellationToken);
+        return await QueueAsync(robotId, stationId.Value, actorUserId, now, cancellationToken);
     }
 
     public async Task<ChargingSessionCommandResult> StartAsync(Guid sessionId, DateTime now, CancellationToken cancellationToken = default)
@@ -79,6 +80,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         session.StartedAt = now;
         session.BatteryAtStart = session.Robot.Battery;
         session.Robot.State = RobotState.Charging;
+        db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "CHARGING_SESSION_STARTED", TargetObject = $"ChargingSession:{session.Id:D}" });
         await db.SaveChangesAsync(cancellationToken);
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
     }
@@ -98,6 +100,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         session.BatteryAtEnd = batteryAtEnd;
         session.Robot.Battery = batteryAtEnd;
         session.Robot.State = RobotState.Available;
+        db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = finalStatus == ChargingSessionStatus.Completed ? "CHARGING_SESSION_COMPLETED" : "CHARGING_SESSION_INTERRUPTED", TargetObject = $"ChargingSession:{session.Id:D}" });
         await db.SaveChangesAsync(cancellationToken);
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
     }

@@ -38,7 +38,7 @@ public interface IRobotRepository
         string  robotCode,
         Guid    robotTypeId,
         Guid    zoneId,
-        Guid?   homeChargingStationId,
+        Guid?   homeChargingStationId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Looks up a RobotType id by TypeCode. Returns null if not found.</summary>
@@ -55,7 +55,7 @@ public interface IRobotRepository
     /// </summary>
     Task<CreateRobotRow?> UpdateRobotAsync(
         Guid  robotId,
-        Guid? homeChargingStationId,
+        Guid? homeChargingStationId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -63,7 +63,7 @@ public interface IRobotRepository
     /// Returns false when robot not found, throws when robot has an active trip.
     /// </summary>
     Task<DeleteRobotRepositoryResult> DeleteRobotAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -71,7 +71,7 @@ public interface IRobotRepository
     /// then stops accepting new ones. (SUSPENDED not in current DB schema.)
     /// </summary>
     Task<SuspendRobotRepositoryResult> SuspendRobotAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -79,7 +79,7 @@ public interface IRobotRepository
     /// Only valid when State = MAINTENANCE (suspended).
     /// </summary>
     Task<ResumeRobotRepositoryResult> ResumeRobotAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -87,7 +87,7 @@ public interface IRobotRepository
     /// Only valid when State = AVAILABLE.
     /// </summary>
     Task<ChargeRobotRepositoryResult> ChargeRobotAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -95,7 +95,7 @@ public interface IRobotRepository
     /// Sets State = MAINTENANCE.
     /// </summary>
     Task<MaintenanceRobotRepositoryResult> MaintenanceRobotAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -103,7 +103,7 @@ public interface IRobotRepository
     /// Only valid when State = MAINTENANCE.
     /// </summary>
     Task<BackToServiceRepositoryResult> BackToServiceAsync(
-        Guid robotId,
+        Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default);
 }
 

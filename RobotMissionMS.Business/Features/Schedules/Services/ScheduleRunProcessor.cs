@@ -55,6 +55,7 @@ public sealed class ScheduleRunProcessor(
                 };
                 db.Alerts.Add(alert);
                 run.LateAlertId = alert.Id;
+                db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "SCHEDULE_RUN_LATE", TargetObject = $"ScheduleRun:{run.Id:D}" });
             }
         }
 
