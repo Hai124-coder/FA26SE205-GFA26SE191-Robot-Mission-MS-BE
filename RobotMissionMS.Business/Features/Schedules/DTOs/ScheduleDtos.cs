@@ -1,0 +1,6 @@
+using System.ComponentModel.DataAnnotations;
+namespace RobotMissionMS.Business.Features.Schedules.DTOs;
+public sealed class ScheduleRequest { [Required, StringLength(100)] public string Name { get; init; }=""; [Required] public string MissionTypeCode { get; init; }=""; [Required] public string Floor { get; init; }=""; [MinLength(1)] public List<int> DaysOfWeek { get; init; }=[]; [Required] public string RunTime { get; init; }=""; [MinLength(1)] public List<string> Stops { get; init; }=[]; public bool IsActive { get; init; }=true; }
+public sealed class ScheduleStatusRequest { public bool IsActive { get; init; } }
+public sealed class ScheduleResponse { public required Guid Id {get;init;} public required string Name {get;init;} public required string MissionTypeCode {get;init;} public required string Floor {get;init;} public required List<int> DaysOfWeek {get;init;} public required string RunTime {get;init;} public required List<string> Stops {get;init;} public required bool IsActive {get;init;} public DateTime? LastRunAt {get;init;} public string? LastResult {get;init;} public DateTime? NextRunAt {get;init;} }
+public sealed class ScheduleRunResponse { public required Guid RunId {get;init;} public required string Status {get;init;} public required bool Replayed {get;init;} }

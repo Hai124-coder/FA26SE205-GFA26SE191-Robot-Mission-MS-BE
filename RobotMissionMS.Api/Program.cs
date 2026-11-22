@@ -28,6 +28,7 @@ builder.Services.AddRequestPreviewServices();
 builder.Services.AddTaskServices();
 builder.Services.AddPlanServices();
 builder.Services.AddIncidentServices();
+builder.Services.AddScheduleServices();
 builder.Services.AddMqttOutbox(builder.Configuration);
 builder.Services.AddImportServices();
 builder.Services.AddJwtBearerAuthentication();
