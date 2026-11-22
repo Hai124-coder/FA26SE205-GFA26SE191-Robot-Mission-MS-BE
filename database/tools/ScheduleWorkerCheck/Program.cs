@@ -19,8 +19,12 @@ var robotType = await db.RobotTypes.FirstOrDefaultAsync(x => x.TypeCode == "WAST
     ?? new RobotType { Id = Guid.NewGuid(), TypeCode = "WASTE_CART", Name = "Waste", Slots = 0, ColorHex = "#000000" };
 var missionType = await db.MissionTypes.FirstOrDefaultAsync(x => x.Code == "WASTE_COLLECTION")
     ?? new MissionType { Id = Guid.NewGuid(), Code = "WASTE_COLLECTION", Name = "Waste", RobotTypeId = robotType.Id, BasePriority = 1, UsesSlotSensor = false, DepartDelaySec = 0, WaitTimeoutSec = 0, IsActive = true };
+var role = await db.Roles.FirstOrDefaultAsync() ?? new Role { Id = Guid.NewGuid(), Name = $"Role{suffix}" };
+var user = await db.Users.FirstOrDefaultAsync() ?? new User { Id = Guid.NewGuid(), Username = $"U{suffix}", PasswordHash = "test", FullName = "Schedule worker test", IsActive = true, RoleId = role.Id, CreatedAt = now };
 if (db.Entry(robotType).State == EntityState.Detached) db.RobotTypes.Add(robotType);
 if (db.Entry(missionType).State == EntityState.Detached) db.MissionTypes.Add(missionType);
+if (db.Entry(role).State == EntityState.Detached) db.Roles.Add(role);
+if (db.Entry(user).State == EntityState.Detached) db.Users.Add(user);
 
 var zone = new Zone { Id = Guid.NewGuid(), Code = $"T{suffix}", Name = "Schedule worker rollback", IsActive = true };
 var location = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"L{suffix}", Name = "Stop", MapNodeCode = "N", Kind = LocationKind.WastePoint, IsActive = true };
@@ -57,6 +61,18 @@ if (trip.TripStops.Count != 1) throw new InvalidOperationException("Created trip
 if (await processor.EvaluateAsync(createdRun.Id, 15, now) != ScheduledRouteDispatchResult.AlreadyCreated)
     throw new InvalidOperationException("Repeat evaluation created a duplicate mission.");
 if (await db.Trips.CountAsync() != 1) throw new InvalidOperationException("Duplicate trip detected.");
+
+var scheduleService = new ScheduleService(db);
+var manual = await scheduleService.RunAsync(schedule.Id, user.Id, zone.Code, "manual-run-key");
+if (!manual.IsSuccess || manual.Response!.Replayed) throw new InvalidOperationException("Manual run was not created.");
+var replay = await scheduleService.RunAsync(schedule.Id, user.Id, zone.Code, "manual-run-key");
+if (!replay.IsSuccess || !replay.Response!.Replayed || replay.Response.RunId != manual.Response.RunId) throw new InvalidOperationException("Manual run was not replayed.");
+var blocked = await scheduleService.RunAsync(schedule.Id, user.Id, zone.Code, "different-manual-run-key");
+if (blocked.Error != ScheduleRunError.RunInProgress) throw new InvalidOperationException("Concurrent manual run was not blocked.");
+var scheduleList = await scheduleService.ListAsync(zone.Code);
+var scheduleSummary = scheduleList.Single(x => x.Id == schedule.Id);
+if (scheduleSummary.LastRunAt is null || scheduleSummary.LastResult != "WAITING_FOR_ROBOT" || scheduleSummary.NextRunAt is null || scheduleSummary.NextRunAt <= now)
+    throw new InvalidOperationException("Schedule list metadata is incorrect.");
 
 var waitingRun = AddRun(schedule, now.AddSeconds(1));
 db.MissionScheduleRuns.Add(waitingRun);

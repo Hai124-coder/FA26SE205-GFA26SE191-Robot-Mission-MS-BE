@@ -40,10 +40,10 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         var station = await db.ChargingStations.Include(x => x.Location).ThenInclude(x => x.Zone).SingleOrDefaultAsync(x => x.Id == stationId, cancellationToken);
         if (station is null) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationNotFound);
         if (station.Location.ZoneId != robot.ZoneId) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.FloorMismatch);
-        if (station.Status != StationStatus.Operational) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationUnavailable);
-        if (robot.State != RobotState.Available) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotAvailable);
         if (await db.ChargingSessions.AnyAsync(x => x.RobotId == robotId && (x.Status == ChargingSessionStatus.Queued || x.Status == ChargingSessionStatus.Charging), cancellationToken))
             return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.ActiveSessionExists);
+        if (station.Status != StationStatus.Operational) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationUnavailable);
+        if (robot.State != RobotState.Available) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotAvailable);
 
         var session = new ChargingSession { Id = Guid.NewGuid(), RobotId = robotId, ChargingStationId = stationId, QueuedAt = now, Status = ChargingSessionStatus.Queued };
         robot.State = RobotState.OnTrip;
@@ -52,6 +52,18 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         if (ownsTransaction) await transaction!.CommitAsync(cancellationToken);
         session.Robot = robot; session.ChargingStation = station;
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
+    }
+
+    public async Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, DateTime now, CancellationToken cancellationToken = default)
+    {
+        var stationId = await db.Robots.AsNoTracking().Where(x => x.Id == robotId)
+            .Select(x => (Guid?)x.HomeChargingStationId).SingleOrDefaultAsync(cancellationToken);
+        if (stationId is null)
+        {
+            var robotExists = await db.Robots.AsNoTracking().AnyAsync(x => x.Id == robotId, cancellationToken);
+            return ChargingSessionCommandResult.Failure(robotExists ? ChargingSessionCommandError.RobotHasNoHomeStation : ChargingSessionCommandError.RobotNotFound);
+        }
+        return await QueueAsync(robotId, stationId.Value, now, cancellationToken);
     }
 
     public async Task<ChargingSessionCommandResult> StartAsync(Guid sessionId, DateTime now, CancellationToken cancellationToken = default)

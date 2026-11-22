@@ -6,6 +6,7 @@ namespace RobotMissionMS.Business.Features.ChargingSessions.Services;
 public interface IChargingSessionService
 {
     Task<ChargingSessionListResult> ListAsync(ChargingSessionListQuery query, string? operatorFloor, CancellationToken cancellationToken = default);
+    Task<ChargingSessionCommandResult> QueueToHomeStationAsync(Guid robotId, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> QueueAsync(Guid robotId, Guid stationId, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> StartAsync(Guid sessionId, DateTime now, CancellationToken cancellationToken = default);
     Task<ChargingSessionCommandResult> CompleteAsync(Guid sessionId, int batteryAtEnd, DateTime now, CancellationToken cancellationToken = default);
@@ -20,7 +21,7 @@ public sealed record ChargingSessionListResult(PagedResponse<ChargingSessionResp
     public static ChargingSessionListResult Failure(ChargingSessionReadError error) => new(null, error);
 }
 
-public enum ChargingSessionCommandError { RobotNotFound, StationNotFound, FloorMismatch, RobotNotAvailable, ActiveSessionExists, SessionNotFound, SessionNotQueued, SessionNotCharging, StationUnavailable, StationAtCapacity, InvalidBattery }
+public enum ChargingSessionCommandError { RobotNotFound, RobotHasNoHomeStation, StationNotFound, FloorMismatch, RobotNotAvailable, ActiveSessionExists, SessionNotFound, SessionNotQueued, SessionNotCharging, StationUnavailable, StationAtCapacity, InvalidBattery }
 public sealed record ChargingSessionCommandResult(ChargingSessionResponse? Response, ChargingSessionCommandError? Error)
 {
     public bool IsSuccess => Error is null;

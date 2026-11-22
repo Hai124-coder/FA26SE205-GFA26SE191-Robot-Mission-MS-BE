@@ -60,8 +60,15 @@ public sealed class SchedulesController(IScheduleService service) : ControllerBa
     public async Task<IActionResult> Run(Guid id, [FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken cancellationToken)
     {
         if (!TryGetOperator(out var userId, out var floor)) return Unauthorized();
-        var response = await service.RunAsync(id, userId, floor, idempotencyKey, cancellationToken);
-        return response is null ? BadRequest() : Ok(response);
+        var result = await service.RunAsync(id, userId, floor, idempotencyKey, cancellationToken);
+        if (result.IsSuccess) return Ok(result.Response);
+        return result.Error switch
+        {
+            ScheduleRunError.InvalidIdempotencyKey => Problem(type: "IDEMPOTENCY_KEY_REQUIRED", statusCode: StatusCodes.Status400BadRequest),
+            ScheduleRunError.NotFound => NotFound(),
+            ScheduleRunError.RunInProgress => Conflict(new { type = "SCHEDULE_RUN_IN_PROGRESS" }),
+            _ => throw new InvalidOperationException("Schedule service returned an invalid run result.")
+        };
     }
 
     private string? OperatorFloor() => User.FindFirstValue("rmms:floor");

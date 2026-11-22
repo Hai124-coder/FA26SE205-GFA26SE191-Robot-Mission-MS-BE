@@ -3,13 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.Business.Features.Robots.DTOs;
 using RobotMissionMS.Business.Features.Robots.Services;
+using RobotMissionMS.Business.Features.ChargingSessions.Services;
 
 namespace RobotMissionMS.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/robots")]
 [Authorize]
-public sealed class RobotsController(IRobotService robotService) : ControllerBase
+public sealed class RobotsController(IRobotService robotService, IChargingSessionService chargingSessions) : ControllerBase
 {
     /// <summary>
     /// Returns robots with their current state snapshot (SC-05, SC-13, SC-14).
@@ -271,8 +272,7 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
     }
 
     /// <summary>
-    /// Sends an idle robot to its charging station (SC-14). Operator only.
-    /// Robot must be AVAILABLE.
+    /// Queues an idle robot for its configured home charging station (SC-14).
     /// </summary>
     [HttpPost("{id:guid}/charge")]
     [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
@@ -285,21 +285,33 @@ public sealed class RobotsController(IRobotService robotService) : ControllerBas
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.ChargeRobotAsync(id, cancellationToken);
+        var result = await chargingSessions.QueueToHomeStationAsync(id, DateTime.UtcNow, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
 
         return result.Error switch
         {
-            ChargeRobotError.NotFound     => Problem(
+            ChargingSessionCommandError.RobotNotFound => Problem(
                 type: "ROBOTS_NOT_FOUND",
                 title: "The requested robot was not found.",
                 statusCode: StatusCodes.Status404NotFound),
-            ChargeRobotError.NotAvailable => Problem(
+            ChargingSessionCommandError.RobotHasNoHomeStation => Problem(
+                type: "ROBOT_HOME_CHARGING_STATION_NOT_CONFIGURED",
+                title: "The robot has no configured home charging station.",
+                statusCode: StatusCodes.Status409Conflict),
+            ChargingSessionCommandError.RobotNotAvailable => Problem(
                 type: "ROBOTS_NOT_AVAILABLE",
                 title: "Only an idle (AVAILABLE) robot can be sent to charge.",
                 statusCode: StatusCodes.Status409Conflict),
-            _ => throw new InvalidOperationException("Robot service returned an invalid charge result.")
+            ChargingSessionCommandError.ActiveSessionExists => Problem(
+                type: "ROBOT_CHARGING_SESSION_IN_PROGRESS",
+                title: "The robot already has an active charging session.",
+                statusCode: StatusCodes.Status409Conflict),
+            ChargingSessionCommandError.StationNotFound or ChargingSessionCommandError.FloorMismatch or ChargingSessionCommandError.StationUnavailable => Problem(
+                type: "CHARGING_STATION_UNAVAILABLE",
+                title: "The configured charging station is unavailable.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Charging session service returned an invalid queue result.")
         };
     }
 

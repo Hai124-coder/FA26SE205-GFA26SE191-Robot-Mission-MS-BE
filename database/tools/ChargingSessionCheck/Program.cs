@@ -18,13 +18,13 @@ var zone = new Zone { Id = Guid.NewGuid(), Code = $"C{suffix}", Name = "Charging
 var type = new RobotType { Id = Guid.NewGuid(), TypeCode = $"T{suffix}", Name = "Test", Slots = 0, ColorHex = "#000000" };
 var location = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"L{suffix}", Name = "Charger", MapNodeCode = "N", Kind = LocationKind.Charger, IsActive = true };
 var station = new ChargingStation { Id = Guid.NewGuid(), LocationId = location.Id, Name = $"S{suffix}", StationType = "CHARGER", Capacity = 1, Status = StationStatus.Operational };
-var firstRobot = new Robot { Id = Guid.NewGuid(), RobotCode = $"R1{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id, IsConnected = true, State = RobotState.Available, Battery = 40, CreatedAt = now };
+var firstRobot = new Robot { Id = Guid.NewGuid(), RobotCode = $"R1{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id, HomeChargingStationId = station.Id, IsConnected = true, State = RobotState.Available, Battery = 40, CreatedAt = now };
 var secondRobot = new Robot { Id = Guid.NewGuid(), RobotCode = $"R2{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id, IsConnected = true, State = RobotState.Available, Battery = 30, CreatedAt = now };
 db.AddRange(zone, type, location, station, firstRobot, secondRobot);
 await db.SaveChangesAsync();
 
 var service = new ChargingSessionService(db);
-var queuedFirst = await service.QueueAsync(firstRobot.Id, station.Id, now);
+var queuedFirst = await service.QueueToHomeStationAsync(firstRobot.Id, now);
 if (!queuedFirst.IsSuccess || queuedFirst.Response!.Status != "QUEUED") throw new InvalidOperationException("First robot was not queued.");
 if ((await db.Robots.SingleAsync(x => x.Id == firstRobot.Id)).State != RobotState.OnTrip) throw new InvalidOperationException("Queued robot state is wrong.");
 
