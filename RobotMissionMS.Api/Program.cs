@@ -30,6 +30,7 @@ builder.Services.AddPlanServices();
 builder.Services.AddIncidentServices();
 builder.Services.AddDashboardServices();
 builder.Services.AddReportServices();
+builder.Services.AddActivityLogServices();
 builder.Services.AddScheduleServices();
 builder.Services.AddMqttOutbox(builder.Configuration);
 builder.Services.AddImportServices();

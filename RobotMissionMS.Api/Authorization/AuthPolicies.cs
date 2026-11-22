@@ -7,4 +7,5 @@ public static class AuthPolicies
     public const string OperatorOrAdmin = "OperatorOrAdmin";
     public const string OperationsRead = "OperationsRead";
     public const string SupervisorOnly = "SupervisorOnly";
+    public const string SupervisorOrAdmin = "SupervisorOrAdmin";
 }
