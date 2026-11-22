@@ -88,6 +88,12 @@ public static class AuthServiceCollectionExtensions
                 };
                 bearer.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = context =>
+                    {
+                        if (context.HttpContext.Request.Path.StartsWithSegments("/hubs/ops"))
+                            context.Token = context.Request.Query["access_token"];
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = async context =>
                     {
                         var subject = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;

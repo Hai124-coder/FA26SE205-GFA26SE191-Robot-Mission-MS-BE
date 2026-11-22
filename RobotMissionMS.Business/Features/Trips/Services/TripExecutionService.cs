@@ -28,6 +28,8 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
             _ => TripExecutionResult.Failure(TripExecutionError.InvalidEvent)
         };
         if (!result.IsSuccess) return result;
+        if (db.ChangeTracker.HasChanges())
+            AddActivity(input, trip, at);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return result;
@@ -99,5 +101,17 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
     }
 
     private static TripStop? FindStop(Trip trip, int? sequence) => sequence is null ? null : trip.TripStops.SingleOrDefault(value => value.Seq == sequence.Value);
+    private void AddActivity(TripExecutionEvent input, Trip trip, DateTime at)
+    {
+        var entry = input.Type switch
+        {
+            TripExecutionEventType.Started => new ActivityLog { Timestamp = at, Action = "TRIP_STARTED", TargetObject = $"Trip:{trip.Id:D}" },
+            TripExecutionEventType.StopCompleted => new ActivityLog { Timestamp = at, Action = "TRIP_STOP_COMPLETED", TargetObject = $"Trip:{trip.Id:D}" },
+            TripExecutionEventType.CompartmentEmpty when input.MissionId is { } missionId => new ActivityLog { Timestamp = at, Action = "MISSION_COMPLETED", TargetObject = $"Mission:{missionId:D}" },
+            TripExecutionEventType.Completed => new ActivityLog { Timestamp = at, Action = "TRIP_COMPLETED", TargetObject = $"Trip:{trip.Id:D}" },
+            _ => null
+        };
+        if (entry is not null) db.ActivityLogs.Add(entry);
+    }
     private static void AddHistory(Mission mission, MissionStatus from, DateTime at, string reason) => mission.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, FromStatus = from, ToStatus = mission.Status, ChangedAt = at, Reason = reason });
 }

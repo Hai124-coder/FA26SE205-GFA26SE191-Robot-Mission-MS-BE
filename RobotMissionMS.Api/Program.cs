@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using RobotMissionMS.Api.Extensions;
+using RobotMissionMS.Api.Realtime;
 using RobotMissionMS.DataAccess.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,8 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
     options.UseNpgsql(services.GetRequiredService<NpgsqlDataSource>()));
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IOperationsRealtimePublisher, OperationsRealtimePublisher>();
 builder.Services.AddAuthConfiguration(builder.Configuration);
 builder.Services.AddAuthServices();
 builder.Services.AddUserServices();
@@ -89,5 +92,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<OperationsHub>("/hubs/ops");
 
 app.Run();

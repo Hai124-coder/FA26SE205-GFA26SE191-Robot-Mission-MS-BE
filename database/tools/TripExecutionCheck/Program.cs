@@ -1,0 +1,35 @@
+using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.Business.Features.Trips.Services;
+using RobotMissionMS.DataAccess.Entities;
+using RobotMissionMS.DataAccess.Enums;
+using RobotMissionMS.DataAccess.Persistence;
+
+var cs = Environment.GetEnvironmentVariable("SECTION9_CONNECTION") ?? throw new InvalidOperationException("SECTION9_CONNECTION is required.");
+await using var source = DatabaseDataSource.Create(cs);
+var options = new DbContextOptionsBuilder<RobotMissionDbContext>().UseNpgsql(source).Options;
+await using var db = new RobotMissionDbContext(options);
+await using var tx = await db.Database.BeginTransactionAsync();
+var now = DateTime.UtcNow; var s = Guid.NewGuid().ToString("N")[..8];
+var zone = new Zone { Id = Guid.NewGuid(), Code = $"T{s}", Name = "Trip", IsActive = true };
+var type = new RobotType { Id = Guid.NewGuid(), TypeCode = $"T{s}", Name = "T", Slots = 1, ColorHex = "#000" };
+var mt = new MissionType { Id = Guid.NewGuid(), Code = $"M{s}", Name = "M", RobotTypeId = type.Id, BasePriority = 1, UsesSlotSensor = false, DepartDelaySec = 0, WaitTimeoutSec = 0, IsActive = true };
+var schedule = new MissionSchedule { Id = Guid.NewGuid(), Name = "S", MissionTypeId = mt.Id, ZoneId = zone.Id, DaysOfWeek = [1], RunTime = TimeOnly.FromDateTime(now), IsActive = true, CreatedAt = now };
+var robot = new Robot { Id = Guid.NewGuid(), RobotCode = $"R{s}", RobotTypeId = type.Id, ZoneId = zone.Id, State = RobotState.OnTrip, IsConnected = true, Battery = 90, CreatedAt = now };
+var map = new MapVersion { Id = Guid.NewGuid(), ZoneId = zone.Id, VersionNo = 1, SourceJson = "{}", WidthM = 1, HeightM = 1, Status = MapVersionStatus.Published, ImportedAt = now };
+var loc = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"L{s}", Name = "L", MapNodeCode = "N", Kind = LocationKind.Dept, IsActive = true };
+var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"X{s}", ZoneId = zone.Id, RobotId = robot.Id, MapVersionId = map.Id, Status = TripStatus.Dispatched, CreatedAt = now };
+var mission = new Mission { Id = Guid.NewGuid(), MissionCode = $"M{s}", MissionTypeId = mt.Id, ZoneId = zone.Id, ScheduleId = schedule.Id, TripId = trip.Id, ToLocationId = loc.Id, Status = MissionStatus.Assigned, Priority = MissionPriority.Normal, CreatedAt = now };
+trip.Missions.Add(mission);
+trip.TripStops.Add(new TripStop { Id = Guid.NewGuid(), TripId = trip.Id, Seq = 1, LocationId = loc.Id, Action = TripStopAction.Pickup, Status = TripStopStatus.Pending });
+trip.TripStops.Add(new TripStop { Id = Guid.NewGuid(), TripId = trip.Id, Seq = 2, LocationId = loc.Id, Action = TripStopAction.Drop, Status = TripStopStatus.Pending });
+db.AddRange(zone, type, mt, schedule, robot, map, loc, trip); await db.SaveChangesAsync();
+var service = new TripExecutionService(db);
+async Task Apply(TripExecutionEventType type, int? seq = null, Guid? missionId = null) { var r = await service.ApplyAsync(new(trip.Id, robot.Id, type, new DateTimeOffset(now), seq, missionId)); if (!r.IsSuccess) throw new InvalidOperationException($"{type} failed"); }
+var invalid = await service.ApplyAsync(new(trip.Id, robot.Id, TripExecutionEventType.Completed, new DateTimeOffset(now)));
+var hasFixtureLog = await db.ActivityLogs.AnyAsync(x => x.TargetObject == $"Trip:{trip.Id:D}" || x.TargetObject == $"Mission:{mission.Id:D}");
+if (invalid.IsSuccess || hasFixtureLog) throw new InvalidOperationException("Invalid event created activity.");
+await Apply(TripExecutionEventType.Started); await Apply(TripExecutionEventType.PickupCompleted, 1); await Apply(TripExecutionEventType.StopCompleted, 1); await Apply(TripExecutionEventType.Arrived, 2); await Apply(TripExecutionEventType.CompartmentEmpty, null, mission.Id); await Apply(TripExecutionEventType.StopCompleted, 2); await Apply(TripExecutionEventType.Completed); await Apply(TripExecutionEventType.Completed);
+var actions = await db.ActivityLogs.Select(x => x.Action).ToListAsync();
+if (actions.Count(x => x == "TRIP_COMPLETED") != 1 || !actions.Contains("TRIP_STARTED") || !actions.Contains("MISSION_COMPLETED") || actions.Count(x => x == "TRIP_STOP_COMPLETED") != 2) throw new InvalidOperationException("Activity logs incorrect.");
+Console.WriteLine("trip-execution=verified milestones=5 invalid=1 idempotent=1 rollback=planned");
+await tx.RollbackAsync();
