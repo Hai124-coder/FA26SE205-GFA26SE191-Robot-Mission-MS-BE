@@ -123,12 +123,23 @@ public enum DispatchPlanTaskStatus
 
 public enum ChargingSessionStatus
 {
+    [PgName("QUEUED")]
+    Queued,
     [PgName("CHARGING")]
     Charging,
     [PgName("COMPLETED")]
     Completed,
     [PgName("INTERRUPTED")]
     Interrupted,
+}
+
+public enum ScheduleRunStatus
+{
+    [PgName("WAITING_FOR_ROBOT")] WaitingForRobot,
+    [PgName("MISSION_CREATED")] MissionCreated,
+    [PgName("LATE")] Late,
+    [PgName("FAILED")] Failed,
+    [PgName("CANCELLED")] Cancelled,
 }
 
 public enum LocationKind

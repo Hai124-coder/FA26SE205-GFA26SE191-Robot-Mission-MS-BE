@@ -45,6 +45,7 @@ public partial class RobotMissionDbContext : DbContext
     public virtual DbSet<MissionSchedule> MissionSchedules { get; set; }
 
     public virtual DbSet<MissionScheduleStop> MissionScheduleStops { get; set; }
+    public virtual DbSet<MissionScheduleRun> MissionScheduleRuns { get; set; }
 
     public virtual DbSet<MissionStatusHistory> MissionStatusHistories { get; set; }
 

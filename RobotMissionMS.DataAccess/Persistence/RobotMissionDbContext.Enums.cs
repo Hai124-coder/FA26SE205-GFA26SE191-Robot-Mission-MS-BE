@@ -42,6 +42,22 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<MissionType>().Property(e => e.PickupKind).HasColumnType("location_kind");
         modelBuilder.Entity<Robot>().Property(e => e.State).HasColumnType("robot_state").HasDefaultValueSql("'INACTIVE'::robot_state");
         modelBuilder.Entity<TelemetrySnapshot>().Property(e => e.State).HasColumnType("robot_state");
+        modelBuilder.Entity<MissionScheduleRun>().Property(e => e.Status).HasColumnType("schedule_run_status");
+        modelBuilder.Entity<MissionScheduleRun>().Property(e => e.RouteSnapshot).HasColumnType("jsonb");
+        modelBuilder.Entity<MissionScheduleRun>(entity =>
+        {
+            entity.ToTable("MissionScheduleRuns");
+            entity.HasKey(e => e.Id).HasName("MissionScheduleRuns_pkey");
+            entity.Property(e => e.RouteSnapshot).HasColumnType("jsonb");
+            entity.HasIndex(e => new { e.Status, e.ScheduledFor }, "MissionScheduleRuns_Status_ScheduledFor_idx");
+            entity.HasIndex(e => new { e.ScheduleId, e.CreatedAt }, "MissionScheduleRuns_ScheduleId_CreatedAt_idx");
+            entity.HasOne(e => e.Schedule).WithMany(e => e.MissionScheduleRuns).HasForeignKey(e => e.ScheduleId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.RequestedByUser).WithMany().HasForeignKey(e => e.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Mission).WithMany().HasForeignKey(e => e.MissionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.LateAlert).WithMany().HasForeignKey(e => e.LateAlertId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ChargingSession>().Property(e => e.QueuedAt).HasColumnType("timestamp with time zone");
+        modelBuilder.Entity<MissionSchedule>().Property(e => e.DeletedAt).HasColumnType("timestamp with time zone");
         modelBuilder.Entity<Trip>().Property(e => e.Status).HasColumnType("trip_status").HasDefaultValueSql("'PLANNED'::trip_status");
         modelBuilder.Entity<TripStop>().Property(e => e.Action).HasColumnType("trip_stop_action");
         modelBuilder.Entity<TripStop>().Property(e => e.Status).HasColumnType("trip_stop_status").HasDefaultValueSql("'PENDING'::trip_stop_status");

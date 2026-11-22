@@ -28,6 +28,7 @@ public partial class MissionSchedule
     public Guid? CreatedByUserId { get; set; }
 
     public DateTime CreatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
 
     public virtual User? CreatedByUser { get; set; }
 
@@ -36,6 +37,7 @@ public partial class MissionSchedule
     public virtual MissionType MissionType { get; set; } = null!;
 
     public virtual ICollection<Mission> Missions { get; set; } = new List<Mission>();
+    public virtual ICollection<MissionScheduleRun> MissionScheduleRuns { get; set; } = new List<MissionScheduleRun>();
 
     public virtual Zone Zone { get; set; } = null!;
 }

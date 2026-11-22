@@ -30,6 +30,7 @@ public static class DatabaseDataSource
         builder.MapEnum<NodeType>("public.node_type");
         builder.MapEnum<RobotState>("public.robot_state");
         builder.MapEnum<RobotCommandOutboxStatus>("public.robot_command_outbox_status");
+        builder.MapEnum<ScheduleRunStatus>("public.schedule_run_status");
         builder.MapEnum<StationStatus>("public.station_status");
         builder.MapEnum<TripStatus>("public.trip_status");
         builder.MapEnum<TripStopAction>("public.trip_stop_action");

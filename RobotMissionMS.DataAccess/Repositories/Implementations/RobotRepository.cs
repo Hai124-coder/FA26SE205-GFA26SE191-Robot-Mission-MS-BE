@@ -239,14 +239,14 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
 
         var chargingTask = db.ChargingSessions.AsNoTracking()
             .Where(cs => cs.RobotId == robotId
-                      && cs.StartedAt >= fromUtc
-                      && cs.StartedAt <= toUtc)
-            .OrderByDescending(cs => cs.StartedAt)
+                      && (cs.StartedAt ?? cs.QueuedAt) >= fromUtc
+                      && (cs.StartedAt ?? cs.QueuedAt) <= toUtc)
+            .OrderByDescending(cs => cs.StartedAt ?? cs.QueuedAt)
             .Select(cs => new RobotHistoryChargingSessionRow(
                 cs.Id,
                 cs.ChargingStation.Name,
                 cs.ChargingStation.Location.Code,
-                cs.StartedAt,
+                cs.StartedAt ?? cs.QueuedAt,
                 cs.EndedAt))
             .ToListAsync(cancellationToken);
 

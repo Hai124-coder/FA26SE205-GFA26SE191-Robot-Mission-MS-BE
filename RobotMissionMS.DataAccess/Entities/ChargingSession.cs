@@ -14,9 +14,12 @@ public partial class ChargingSession
 
     public Guid ChargingStationId { get; set; }
 
-    public DateTime StartedAt { get; set; }
+    public DateTime QueuedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
 
     public DateTime? EndedAt { get; set; }
+    public int? BatteryAtStart { get; set; }
+    public int? BatteryAtEnd { get; set; }
 
     public virtual ChargingStation ChargingStation { get; set; } = null!;
 

@@ -64,7 +64,7 @@ public sealed class ChargingStationRepository(RobotMissionDbContext db) : ICharg
                 && session.Status == ChargingSessionStatus.Charging)
             .OrderBy(session => session.StartedAt)
             .Select(session => new { session.ChargingStationId, Robot = new ChargingRobotRow(session.Robot.Id,
-                session.Robot.RobotCode, session.Robot.Battery, session.StartedAt) })
+                session.Robot.RobotCode, session.Robot.Battery, session.StartedAt ?? session.QueuedAt) })
             .ToListAsync(cancellationToken);
 
         var robotsByStation = chargingRobots.GroupBy(row => row.ChargingStationId)
