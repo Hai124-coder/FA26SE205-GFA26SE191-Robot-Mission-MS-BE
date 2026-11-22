@@ -35,7 +35,7 @@ public partial class Robot
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 
-    public virtual ChargingSession? ChargingSession { get; set; }
+    public virtual ICollection<ChargingSession> ChargingSessions { get; set; } = new List<ChargingSession>();
 
     public virtual ChargingStation? HomeChargingStation { get; set; }
 

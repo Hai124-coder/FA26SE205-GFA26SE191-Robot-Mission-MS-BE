@@ -21,7 +21,7 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<Batch>().Property(e => e.Status).HasColumnType("batch_status").HasDefaultValueSql("'DRAFT'::batch_status");
         modelBuilder.Entity<Request>().Property(e => e.Source).HasColumnType("batch_source");
         modelBuilder.Entity<BatchRow>().Property(e => e.Priority).HasColumnType("mission_priority");
-        modelBuilder.Entity<ChargingSession>().Property(e => e.Status).HasColumnType("charging_session_status").HasDefaultValueSql("'CHARGING'::charging_session_status");
+        modelBuilder.Entity<ChargingSession>().Property(e => e.Status).HasColumnType("charging_session_status").HasDefaultValueSql("'QUEUED'::charging_session_status");
         modelBuilder.Entity<DispatchPlan>().Property(e => e.Status).HasColumnType("dispatch_plan_status").HasDefaultValueSql("'DRAFT'::dispatch_plan_status");
         modelBuilder.Entity<DispatchPlan>().Property(e => e.Source).HasColumnType("dispatch_plan_source");
         modelBuilder.Entity<DispatchPlanStop>().Property(e => e.Action).HasColumnType("trip_stop_action");

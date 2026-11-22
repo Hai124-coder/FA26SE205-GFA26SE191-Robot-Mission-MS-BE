@@ -239,18 +239,17 @@ public partial class RobotMissionDbContext : DbContext
 
             entity.HasIndex(e => e.RobotId, "UX_ChargingSessions_OneActive")
                 .IsUnique()
-                .HasFilter("(\"Status\" = 'CHARGING'::charging_session_status)");
+                .HasFilter("(\"Status\" IN ('QUEUED'::charging_session_status, 'CHARGING'::charging_session_status))");
 
             entity.Property(e => e.Id).ValueGeneratedNever();
-            entity.Property(e => e.StartedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.ChargingStation).WithMany(p => p.ChargingSessions)
                 .HasForeignKey(d => d.ChargingStationId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("ChargingSessions_ChargingStationId_fkey");
 
-            entity.HasOne(d => d.Robot).WithOne(p => p.ChargingSession)
-                .HasForeignKey<ChargingSession>(d => d.RobotId)
+            entity.HasOne(d => d.Robot).WithMany(p => p.ChargingSessions)
+                .HasForeignKey(d => d.RobotId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("ChargingSessions_RobotId_fkey");
         });

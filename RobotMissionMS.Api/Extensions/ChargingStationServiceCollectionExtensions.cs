@@ -1,4 +1,5 @@
 using RobotMissionMS.Business.Features.ChargingStations.Services;
+using RobotMissionMS.Business.Features.ChargingSessions.Services;
 using RobotMissionMS.DataAccess.Repositories.Implementations;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -10,6 +11,7 @@ public static class ChargingStationServiceCollectionExtensions
     {
         services.AddScoped<IChargingStationRepository, ChargingStationRepository>();
         services.AddScoped<IChargingStationService, ChargingStationService>();
+        services.AddScoped<IChargingSessionService, ChargingSessionService>();
         return services;
     }
 }

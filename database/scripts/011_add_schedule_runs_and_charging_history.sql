@@ -48,6 +48,7 @@ ALTER TABLE public."ChargingSessions"
   ADD COLUMN IF NOT EXISTS "QueuedAt" timestamptz NULL,
   ADD COLUMN IF NOT EXISTS "BatteryAtStart" integer NULL,
   ADD COLUMN IF NOT EXISTS "BatteryAtEnd" integer NULL;
+ALTER TABLE public."ChargingSessions" ALTER COLUMN "Status" SET DEFAULT 'QUEUED'::public.charging_session_status;
 UPDATE public."ChargingSessions" SET "QueuedAt" = "StartedAt" WHERE "QueuedAt" IS NULL;
 ALTER TABLE public."ChargingSessions" ALTER COLUMN "QueuedAt" SET NOT NULL;
 ALTER TABLE public."ChargingSessions" ALTER COLUMN "StartedAt" DROP NOT NULL;
