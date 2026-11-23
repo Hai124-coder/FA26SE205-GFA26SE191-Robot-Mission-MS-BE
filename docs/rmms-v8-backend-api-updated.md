@@ -447,6 +447,12 @@ Kết nối kèm access token. Sau khi kết nối, client gọi JoinFloor(floor
 
 Thêm một sự kiện chỉ gửi cho Admin: passwordReset.requested (mã yêu cầu, username, thời điểm), để menu Người dùng & vai trò hiện số yêu cầu chờ và màn SC-02 tự cập nhật.
 
+`trip.updated` dùng payload `{ tripId, idx, stops, slots }`. `idx` là `Seq` (bắt đầu từ 1)
+của điểm dừng đầu tiên chưa `DONE`, hoặc `null` khi chuyến đã hoàn tất. Mỗi phần tử
+`stops` gồm `{ seq, action, status }`; mỗi phần tử `slots` gồm `{ missionId, slot, status }`.
+Backend chỉ phát sự kiện sau khi thay đổi chuyến đã commit; yêu cầu lặp lại không đổi dữ
+liệu sẽ không phát lại event.
+
 
 ### Cầu nối MQTT (nội bộ backend)
 

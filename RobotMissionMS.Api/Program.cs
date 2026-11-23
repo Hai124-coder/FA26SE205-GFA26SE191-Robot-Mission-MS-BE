@@ -2,6 +2,10 @@
 using Npgsql;
 using RobotMissionMS.Api.Extensions;
 using RobotMissionMS.Api.Realtime;
+using RobotMissionMS.Business.Features.Trips.Services;
+using RobotMissionMS.Business.Features.Tasks.Services;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
+using RobotMissionMS.Business.Features.Incidents.Services;
 using RobotMissionMS.DataAccess.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +20,10 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IOperationsRealtimePublisher, OperationsRealtimePublisher>();
+builder.Services.AddScoped<ITripRealtimePublisher, OperationsTripRealtimePublisher>();
+builder.Services.AddScoped<IMissionRealtimePublisher, OperationsMissionRealtimePublisher>();
+builder.Services.AddScoped<IActivityRealtimePublisher, OperationsActivityRealtimePublisher>();
+builder.Services.AddScoped<IIncidentRealtimePublisher, OperationsIncidentRealtimePublisher>();
 builder.Services.AddAuthConfiguration(builder.Configuration);
 builder.Services.AddAuthServices();
 builder.Services.AddUserServices();

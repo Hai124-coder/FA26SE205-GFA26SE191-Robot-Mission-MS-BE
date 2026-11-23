@@ -2,13 +2,14 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.Business.Features.Tasks.Services;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 
 namespace RobotMissionMS.Business.Features.Plans.Services;
 
-public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? timeProvider = null) : IPlanCommandService
+public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? timeProvider = null, IMissionRealtimePublisher? realtime = null, IActivityRealtimePublisher? activityRealtime = null) : IPlanCommandService
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
@@ -159,6 +160,7 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         var assignments = plan.Tasks.Where(task => task.Status == DispatchPlanTaskStatus.Assigned && task.PlanTrip is not null).ToList();
         if (assignments.Count == 0) return PlanCommandResult.Failure(PlanCommandError.NoAssignedTasks);
         var now = clock.GetUtcNow().UtcDateTime;
+        var realtimeUpdates = new List<MissionRealtimeUpdate>();
         var locationIds = assignments.SelectMany(task => task.PlanTrip!.Stops).Select(stop => stop.LocationId).Distinct().ToArray();
         var locations = await db.Locations.AsNoTracking().Where(location => locationIds.Contains(location.Id))
             .ToDictionaryAsync(location => location.Id, location => location.MapNodeCode, cancellationToken);
@@ -175,6 +177,7 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
             {
                 var mission = task.Mission; var from = mission.Status; mission.TripId = trip.Id; mission.SlotNo = task.SlotNo; mission.Status = MissionStatus.Assigned;
                 db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, ChangedAt = now, ChangedByUserId = userId, FromStatus = from, ToStatus = MissionStatus.Assigned, Reason = $"Released from dispatch plan {plan.Id:D}." });
+                realtimeUpdates.Add(new MissionRealtimeUpdate(mission.Id, "ASSIGNED", robot.Id, mission.SlotNo, $"Released from dispatch plan {plan.Id:D}."));
             }
             robot.State = RobotState.OnTrip;
             db.RobotCommandOutbox.Add(new RobotCommandOutbox
@@ -186,7 +189,17 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         }
         plan.Status = DispatchPlanStatus.Released; plan.ReleasedAt = now; plan.ReleasedByUserId = userId; plan.Version++;
         db.ActivityLogs.Add(new ActivityLog { UserId = userId, Timestamp = now, Action = "PLAN_RELEASED", TargetObject = $"DispatchPlan:{plan.Id:D}" });
-        await db.SaveChangesAsync(cancellationToken); if (transaction is not null) await transaction.CommitAsync(cancellationToken); return PlanCommandResult.Success(plan.Id);
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null && realtime is not null)
+        {
+            foreach (var update in realtimeUpdates) await realtime.PublishTaskUpdatedAsync(floor.Trim(), update, cancellationToken);
+            var waiting = await db.Missions.AsNoTracking().CountAsync(mission => mission.ZoneId == plan.ZoneId && (mission.Status == MissionStatus.Pending || mission.Status == MissionStatus.Rescheduled), cancellationToken);
+            await realtime.PublishQueueChangedAsync(floor.Trim(), waiting, cancellationToken);
+        }
+        if (transaction is not null && activityRealtime is not null)
+            await activityRealtime.PublishAsync(floor.Trim(), new ActivityRealtimeEvent(now, "PLAN_RELEASED", $"DispatchPlan:{plan.Id:D}", userId), cancellationToken);
+        return PlanCommandResult.Success(plan.Id);
     }
 
     private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(CancellationToken ct) => db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;

@@ -3,13 +3,15 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.Business.Features.Incidents.DTOs;
+using RobotMissionMS.Business.Features.Tasks.Services;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 
 namespace RobotMissionMS.Business.Features.Incidents.Services;
 
-public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvider? timeProvider = null) : IIncidentCommandService
+public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvider? timeProvider = null, IMissionRealtimePublisher? realtime = null, IActivityRealtimePublisher? activityRealtime = null, IIncidentRealtimePublisher? incidentRealtime = null) : IIncidentCommandService
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
@@ -42,6 +44,16 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         AddActivity(actorUserId, now, "INCIDENT_CREATED", alert.Id);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null && activityRealtime is not null)
+        {
+            var floor = request.ZoneId is { } zoneId ? await db.Zones.AsNoTracking().Where(zone => zone.Id == zoneId).Select(zone => zone.Code).SingleOrDefaultAsync(cancellationToken) : null;
+            await activityRealtime.PublishAsync(floor, new ActivityRealtimeEvent(now, "INCIDENT_CREATED", $"Alert:{alert.Id:D}", actorUserId), cancellationToken);
+        }
+        if (transaction is not null && incidentRealtime is not null)
+        {
+            var floor = request.ZoneId is { } zoneId ? await db.Zones.AsNoTracking().Where(zone => zone.Id == zoneId).Select(zone => zone.Code).SingleOrDefaultAsync(cancellationToken) : null;
+            await incidentRealtime.PublishCreatedAsync(floor, Realtime(alert), cancellationToken);
+        }
         return IncidentCommandResult.Success(Response(alert));
     }
 
@@ -55,6 +67,7 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         var alert = await db.Alerts.FromSqlInterpolated($"SELECT * FROM public.\"Alerts\" WHERE \"Id\" = {alertId} FOR UPDATE").Include(value => value.Zone).SingleOrDefaultAsync(cancellationToken);
         if (alert is null) return IncidentCommandResult.Failure(IncidentCommandError.AlertNotFound);
         if (alert.Zone?.Code is { } incidentFloor && !string.Equals(incidentFloor, floor.Trim(), StringComparison.OrdinalIgnoreCase)) return IncidentCommandResult.Failure(IncidentCommandError.FloorForbidden);
+        var alertFloor = alert.Zone?.Code ?? await db.Zones.AsNoTracking().Where(zone => zone.Id == alert.ZoneId).Select(zone => zone.Code).SingleOrDefaultAsync(cancellationToken);
         if (alert.Status == AlertStatus.Resolved) return IncidentCommandResult.Failure(IncidentCommandError.AlertResolved);
         if (alert.ScenarioCode is null || !IncidentContract.Rules.TryGetValue(alert.ScenarioCode, out var rule)) return IncidentCommandResult.Failure(IncidentCommandError.ScenarioNotSupported);
         var action = requestedAction == IncidentAction.Accept ? alert.SuggestedAction : requestedAction;
@@ -89,6 +102,22 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         AddActivity(actorUserId, now, $"INCIDENT_ACTION_{ActionCode(requestedAction)}", alert.Id);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null && realtime is not null && !string.IsNullOrWhiteSpace(alertFloor))
+        {
+            var updates = await db.Missions.AsNoTracking().Where(mission => affectedMissionIds.Contains(mission.Id))
+                .Select(mission => new { mission.Id, mission.Status, mission.TripId, mission.SlotNo }).ToListAsync(cancellationToken);
+            foreach (var update in updates)
+                await realtime.PublishTaskUpdatedAsync(alertFloor, new MissionRealtimeUpdate(update.Id, update.Status.ToString().ToUpperInvariant(), update.TripId, update.SlotNo, ActionCode(action.Value)), cancellationToken);
+            if (updates.Any(update => update.Status == MissionStatus.Rescheduled))
+            {
+                var waiting = await db.Missions.AsNoTracking().CountAsync(mission => mission.ZoneId == alert.ZoneId && (mission.Status == MissionStatus.Pending || mission.Status == MissionStatus.Rescheduled), cancellationToken);
+                await realtime.PublishQueueChangedAsync(alertFloor, waiting, cancellationToken);
+            }
+        }
+        if (transaction is not null && activityRealtime is not null)
+            await activityRealtime.PublishAsync(alertFloor, new ActivityRealtimeEvent(now, $"INCIDENT_ACTION_{ActionCode(requestedAction)}", $"Alert:{alert.Id:D}", actorUserId), cancellationToken);
+        if (transaction is not null && incidentRealtime is not null)
+            await incidentRealtime.PublishUpdatedAsync(alertFloor, Realtime(alert), cancellationToken);
         return IncidentCommandResult.Success(Response(alert));
     }
 
@@ -188,4 +217,5 @@ public sealed class IncidentCommandService(RobotMissionDbContext db, TimeProvide
         IncidentAction.BrokerUp => "BROKER_UP", _ => action.ToString().ToUpperInvariant()
     };
     private static IncidentActionResponse Response(Alert alert) => new() { AlertId = alert.Id, Status = alert.Status.ToString().ToUpperInvariant(), Phase = alert.Phase?.ToString().ToUpperInvariant(), SuggestedAction = alert.SuggestedAction is { } action ? ActionCode(action) : null };
+    private static IncidentRealtimeUpdate Realtime(Alert alert) => new(alert.Id, alert.ScenarioCode, alert.AlertType, alert.Status.ToString().ToUpperInvariant(), alert.Phase?.ToString().ToUpperInvariant(), alert.Message, alert.RobotId, alert.TripId);
 }

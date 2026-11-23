@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.Business.Features.Tasks.Services;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
@@ -8,13 +10,13 @@ namespace RobotMissionMS.Business.Features.Schedules.Services;
 
 public enum ScheduledRouteDispatchResult { Created, NoEligibleRobot, MapNotPublished, InvalidSnapshot, AlreadyCreated }
 
-public sealed class ScheduledRouteDispatchService(RobotMissionDbContext db)
+public sealed class ScheduledRouteDispatchService(RobotMissionDbContext db, IMissionRealtimePublisher? realtime = null, IActivityRealtimePublisher? activityRealtime = null)
 {
     public async Task<ScheduledRouteDispatchResult> DispatchAsync(Guid runId, CancellationToken cancellationToken = default)
     {
         var ownsTransaction = db.Database.CurrentTransaction is null;
         await using var transaction = ownsTransaction ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
-        var run = await db.MissionScheduleRuns.Include(x => x.Schedule).ThenInclude(x => x.MissionType)
+        var run = await db.MissionScheduleRuns.Include(x => x.Schedule).ThenInclude(x => x.MissionType).Include(x => x.Schedule).ThenInclude(x => x.Zone)
             .SingleOrDefaultAsync(x => x.Id == runId, cancellationToken);
         if (run is null || run.Status == ScheduleRunStatus.MissionCreated) return ScheduledRouteDispatchResult.AlreadyCreated;
 
@@ -48,7 +50,13 @@ public sealed class ScheduledRouteDispatchService(RobotMissionDbContext db)
         db.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, ChangedAt = now,
             FromStatus = MissionStatus.Pending, ToStatus = MissionStatus.Assigned, Reason = "Scheduled route trip created." });
         db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "SCHEDULE_RUN_MISSION_CREATED", TargetObject = $"ScheduleRun:{run.Id:D}" });
-        await db.SaveChangesAsync(cancellationToken); if (ownsTransaction) await transaction!.CommitAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        if (ownsTransaction) await transaction!.CommitAsync(cancellationToken);
+        if (ownsTransaction && realtime is not null)
+            await realtime.PublishTaskUpdatedAsync(run.Schedule.Zone.Code,
+                new MissionRealtimeUpdate(mission.Id, "ASSIGNED", robot.Id, mission.SlotNo, "Scheduled route trip created."), cancellationToken);
+        if (ownsTransaction && activityRealtime is not null)
+            await activityRealtime.PublishAsync(run.Schedule.Zone.Code, new ActivityRealtimeEvent(now, "SCHEDULE_RUN_MISSION_CREATED", $"ScheduleRun:{run.Id:D}", null), cancellationToken);
         return ScheduledRouteDispatchResult.Created;
     }
 

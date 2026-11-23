@@ -1,19 +1,21 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.Business.Features.Tasks.Services;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 
 namespace RobotMissionMS.Business.Features.Trips.Services;
 
-public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecutionService
+public sealed class TripExecutionService(RobotMissionDbContext db, ITripRealtimePublisher? realtime = null, IMissionRealtimePublisher? missionRealtime = null, IActivityRealtimePublisher? activityRealtime = null) : ITripExecutionService
 {
     public async Task<TripExecutionResult> ApplyAsync(TripExecutionEvent input, CancellationToken cancellationToken = default)
     {
         if (input.TripId == Guid.Empty || input.RobotId == Guid.Empty || input.OccurredAt == default) return TripExecutionResult.Failure(TripExecutionError.InvalidEvent);
         await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken) : null;
         var trip = await db.Trips.FromSqlInterpolated($"SELECT * FROM public.\"Trips\" WHERE \"Id\" = {input.TripId} FOR UPDATE")
-            .Include(value => value.Robot).Include(value => value.TripStops).Include(value => value.Missions).SingleOrDefaultAsync(cancellationToken);
+            .Include(value => value.Zone).Include(value => value.Robot).Include(value => value.TripStops).Include(value => value.Missions).SingleOrDefaultAsync(cancellationToken);
         if (trip is null) return TripExecutionResult.Failure(TripExecutionError.TripNotFound);
         if (trip.RobotId != input.RobotId) return TripExecutionResult.Failure(TripExecutionError.RobotMismatch);
         var at = input.OccurredAt.UtcDateTime;
@@ -28,10 +30,22 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
             _ => TripExecutionResult.Failure(TripExecutionError.InvalidEvent)
         };
         if (!result.IsSuccess) return result;
-        if (db.ChangeTracker.HasChanges())
+        var stateChanged = db.ChangeTracker.HasChanges();
+        var missionUpdates = db.ChangeTracker.Entries<Mission>()
+            .Where(entry => entry.Property(value => value.Status).IsModified)
+            .Select(entry => new MissionRealtimeUpdate(entry.Entity.Id, entry.Entity.Status.ToString().ToUpperInvariant(), trip.RobotId, entry.Entity.SlotNo, MissionReason(input.Type)))
+            .ToList();
+        if (stateChanged)
             AddActivity(input, trip, at);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        if (stateChanged && transaction is not null && realtime is not null)
+            await realtime.PublishUpdatedAsync(trip.Zone.Code, ToRealtimeUpdate(trip), cancellationToken);
+        if (transaction is not null && missionRealtime is not null)
+            foreach (var update in missionUpdates) await missionRealtime.PublishTaskUpdatedAsync(trip.Zone.Code, update, cancellationToken);
+        var activity = Activity(input, trip, at);
+        if (transaction is not null && activityRealtime is not null && activity is not null)
+            await activityRealtime.PublishAsync(trip.Zone.Code, activity, cancellationToken);
         return result;
     }
 
@@ -101,17 +115,28 @@ public sealed class TripExecutionService(RobotMissionDbContext db) : ITripExecut
     }
 
     private static TripStop? FindStop(Trip trip, int? sequence) => sequence is null ? null : trip.TripStops.SingleOrDefault(value => value.Seq == sequence.Value);
+    private static string? MissionReason(TripExecutionEventType type) => type switch
+    {
+        TripExecutionEventType.PickupCompleted => "ROBOT_PICKUP_COMPLETED",
+        TripExecutionEventType.CompartmentEmpty => "ROBOT_COMPARTMENT_EMPTY",
+        _ => null
+    };
+    private static TripRealtimeUpdate ToRealtimeUpdate(Trip trip) => new(
+        trip.Id,
+        trip.TripStops.OrderBy(value => value.Seq).FirstOrDefault(value => value.Status != TripStopStatus.Done)?.Seq,
+        trip.TripStops.OrderBy(value => value.Seq).Select(value => new TripRealtimeStop(value.Seq, value.Action.ToString().ToUpperInvariant(), value.Status.ToString().ToUpperInvariant())).ToList(),
+        trip.Missions.OrderBy(value => value.SlotNo).Select(value => new TripRealtimeSlot(value.Id, value.SlotNo, value.Status.ToString().ToUpperInvariant())).ToList());
     private void AddActivity(TripExecutionEvent input, Trip trip, DateTime at)
     {
-        var entry = input.Type switch
-        {
-            TripExecutionEventType.Started => new ActivityLog { Timestamp = at, Action = "TRIP_STARTED", TargetObject = $"Trip:{trip.Id:D}" },
-            TripExecutionEventType.StopCompleted => new ActivityLog { Timestamp = at, Action = "TRIP_STOP_COMPLETED", TargetObject = $"Trip:{trip.Id:D}" },
-            TripExecutionEventType.CompartmentEmpty when input.MissionId is { } missionId => new ActivityLog { Timestamp = at, Action = "MISSION_COMPLETED", TargetObject = $"Mission:{missionId:D}" },
-            TripExecutionEventType.Completed => new ActivityLog { Timestamp = at, Action = "TRIP_COMPLETED", TargetObject = $"Trip:{trip.Id:D}" },
-            _ => null
-        };
+        var item = Activity(input, trip, at); var entry = item is null ? null : new ActivityLog { Timestamp = item.Timestamp, Action = item.Action, TargetObject = item.TargetObject };
         if (entry is not null) db.ActivityLogs.Add(entry);
     }
+    private static ActivityRealtimeEvent? Activity(TripExecutionEvent input, Trip trip, DateTime at) => input.Type switch
+    {
+        TripExecutionEventType.Started => new(at, "TRIP_STARTED", $"Trip:{trip.Id:D}", null),
+        TripExecutionEventType.StopCompleted => new(at, "TRIP_STOP_COMPLETED", $"Trip:{trip.Id:D}", null),
+        TripExecutionEventType.CompartmentEmpty when input.MissionId is { } missionId => new(at, "MISSION_COMPLETED", $"Mission:{missionId:D}", null),
+        TripExecutionEventType.Completed => new(at, "TRIP_COMPLETED", $"Trip:{trip.Id:D}", null), _ => null
+    };
     private static void AddHistory(Mission mission, MissionStatus from, DateTime at, string reason) => mission.MissionStatusHistories.Add(new MissionStatusHistory { Id = Guid.NewGuid(), MissionId = mission.Id, FromStatus = from, ToStatus = mission.Status, ChangedAt = at, Reason = reason });
 }

@@ -2,13 +2,15 @@ using Microsoft.EntityFrameworkCore;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
+using RobotMissionMS.Business.Features.ActivityLogs.Services;
 
 namespace RobotMissionMS.Business.Features.Schedules.Services;
 
 /// <summary>Evaluates one persisted schedule run. It is safe to call repeatedly.</summary>
 public sealed class ScheduleRunProcessor(
     RobotMissionDbContext db,
-    ScheduledRouteDispatchService dispatcher)
+    ScheduledRouteDispatchService dispatcher,
+    IActivityRealtimePublisher? activityRealtime = null)
 {
     public async Task<ScheduledRouteDispatchResult> EvaluateAsync(
         Guid runId,
@@ -60,6 +62,11 @@ public sealed class ScheduleRunProcessor(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        if (run.Status == ScheduleRunStatus.Late && activityRealtime is not null && run.Schedule.ZoneId != Guid.Empty)
+        {
+            var floor = await db.Zones.AsNoTracking().Where(zone => zone.Id == run.Schedule.ZoneId).Select(zone => zone.Code).SingleOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(floor)) await activityRealtime.PublishAsync(floor, new ActivityRealtimeEvent(now, "SCHEDULE_RUN_LATE", $"ScheduleRun:{run.Id:D}", null), cancellationToken);
+        }
         return result;
     }
 
