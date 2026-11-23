@@ -378,6 +378,8 @@ ASALocalRun/
 
 # MSBuild Binary and Structured Log
 *.binlog
+docker/mosquitto/data/
+docker/mosquitto/log/
 MSBuild_Logs/
 
 # AWS SAM Build and Temporary Artifacts folder

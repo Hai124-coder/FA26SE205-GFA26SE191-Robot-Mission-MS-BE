@@ -22,5 +22,17 @@ public partial class TelemetrySnapshot
 
     public double? Speed { get; set; }
 
+    public double? HeadingRad { get; set; }
+
+    public string? ReportedStatus { get; set; }
+
+    public string? OrderId { get; set; }
+
+    public string? NextNodeCode { get; set; }
+
+    public int? AtStopSeq { get; set; }
+
+    public DateTime ReceivedAt { get; set; }
+
     public virtual Robot Robot { get; set; } = null!;
 }

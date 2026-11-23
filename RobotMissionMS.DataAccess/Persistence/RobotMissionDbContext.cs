@@ -709,6 +709,10 @@ public partial class RobotMissionDbContext : DbContext
             entity.HasIndex(e => new { e.RobotId, e.Timestamp }, "TelemetrySnapshots_RobotId_Timestamp_idx");
 
             entity.Property(e => e.Timestamp).HasDefaultValueSql("now()");
+            entity.Property(e => e.ReceivedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.ReportedStatus).HasMaxLength(20);
+            entity.Property(e => e.OrderId).HasMaxLength(100);
+            entity.Property(e => e.NextNodeCode).HasMaxLength(100);
 
             entity.HasOne(d => d.Robot).WithMany(p => p.TelemetrySnapshots)
                 .HasForeignKey(d => d.RobotId)
