@@ -9,7 +9,11 @@ public static class MqttServiceCollectionExtensions
         services.Configure<MqttOptions>(configuration.GetSection("Mqtt"));
         services.AddSingleton<IRobotCommandPublisher, MqttRobotCommandPublisher>();
         services.AddSingleton<RobotCommandOutboxProcessor>();
+        services.AddSingleton<RobotStateTelemetryProcessor>();
+        services.AddSingleton<RobotHeartbeatMonitorProcessor>();
         services.AddHostedService<RobotCommandOutboxWorker>();
+        services.AddHostedService<RobotStateSubscriberWorker>();
+        services.AddHostedService<RobotHeartbeatMonitorWorker>();
         return services;
     }
 }

@@ -30,6 +30,8 @@ try
     var f2Task = new TaskCompletionSource<OperationsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
     var f3Task = new TaskCompletionSource<OperationsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
     var f2Queue = new TaskCompletionSource<OperationsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var f2Robot = new TaskCompletionSource<OperationsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var f3Robot = new TaskCompletionSource<OperationsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
     f2.On<OperationsEvent>("trip.updated", item => f2Trip.TrySetResult(item));
     f3.On<OperationsEvent>("trip.updated", item => f3Trip.TrySetResult(item));
     f2.On<OperationsEvent>("event.logged", item => f2System.TrySetResult(item));
@@ -37,6 +39,8 @@ try
     f2.On<OperationsEvent>("task.updated", item => f2Task.TrySetResult(item));
     f3.On<OperationsEvent>("task.updated", item => f3Task.TrySetResult(item));
     f2.On<OperationsEvent>("queue.changed", item => f2Queue.TrySetResult(item));
+    f2.On<OperationsEvent>("robot.updated", item => f2Robot.TrySetResult(item));
+    f3.On<OperationsEvent>("robot.updated", item => f3Robot.TrySetResult(item));
     await f2.StartAsync(); await f3.StartAsync();
     await f2.InvokeAsync("JoinFloor", "F2"); await f3.InvokeAsync("JoinFloor", "F3");
 
@@ -53,9 +57,14 @@ try
     if ((await f2Task.Task.WaitAsync(TimeSpan.FromSeconds(3))).Type != "task.updated" || (await f2Queue.Task.WaitAsync(TimeSpan.FromSeconds(3))).Type != "queue.changed") throw new InvalidOperationException("Mission payload is incorrect.");
     if (await ReceivedWithinAsync(f3Task.Task, TimeSpan.FromMilliseconds(750))) throw new InvalidOperationException("F3 received an F2 task event.");
 
+    var robots = new OperationsRobotRealtimePublisher(publisher);
+    await robots.PublishUpdatedAsync("F2", new RobotRealtimeUpdate(Guid.NewGuid(), "F2", 2.5, 1.2, 92, "MOVING", true, null, "F2-N02", 1, DateTime.UtcNow));
+    if ((await f2Robot.Task.WaitAsync(TimeSpan.FromSeconds(3))).Type != "robot.updated") throw new InvalidOperationException("Robot payload is incorrect.");
+    if (await ReceivedWithinAsync(f3Robot.Task, TimeSpan.FromMilliseconds(750))) throw new InvalidOperationException("F3 received an F2 robot event.");
+
     await publisher.PublishAsync("event.logged", null, new { action = "TEST" });
     await Task.WhenAll(f2System.Task.WaitAsync(TimeSpan.FromSeconds(3)), f3System.Task.WaitAsync(TimeSpan.FromSeconds(3)));
-    Console.WriteLine("signalr-delivery=verified floor-targeted=F2-only trip-task-queue=verified system-event=all-clients");
+    Console.WriteLine("signalr-delivery=verified floor-targeted=F2-only trip-task-queue-robot=verified system-event=all-clients");
 }
 finally
 {

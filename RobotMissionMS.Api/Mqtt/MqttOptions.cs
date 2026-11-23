@@ -13,4 +13,5 @@ public sealed class MqttOptions
     public int PollIntervalSeconds { get; init; } = 2;
     public int LockSeconds { get; init; } = 30;
     public int MaxAttempts { get; init; } = 5;
+    public int HeartbeatTimeoutSeconds { get; init; } = 5;
 }

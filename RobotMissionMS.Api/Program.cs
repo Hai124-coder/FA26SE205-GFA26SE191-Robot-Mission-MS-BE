@@ -20,6 +20,7 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IOperationsRealtimePublisher, OperationsRealtimePublisher>();
+builder.Services.AddSingleton<IRobotStateRealtimePublisher, OperationsRobotRealtimePublisher>();
 builder.Services.AddScoped<ITripRealtimePublisher, OperationsTripRealtimePublisher>();
 builder.Services.AddScoped<IMissionRealtimePublisher, OperationsMissionRealtimePublisher>();
 builder.Services.AddScoped<IActivityRealtimePublisher, OperationsActivityRealtimePublisher>();
