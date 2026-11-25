@@ -1,0 +1,15 @@
+{
+  "robotId": "MED-01",
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "stateTopic": "rmms/v1/{robotId}/state",
+    "telemetryIntervalSeconds": 1
+  },
+  "simulation": {
+    "defaultCommandDurationSeconds": 2,
+    "maxCommandDurationSeconds": 10,
+    "forwardWheelSpeed": 2,
+    "batteryPercent": 100
+  }
+}
