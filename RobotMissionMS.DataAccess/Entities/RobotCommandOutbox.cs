@@ -7,8 +7,8 @@ public sealed class RobotCommandOutbox
     public Guid Id { get; set; }
     public string CommandType { get; set; } = null!;
     public Guid RobotId { get; set; }
-    public Guid TripId { get; set; }
-    public Guid PlanId { get; set; }
+    public Guid? TripId { get; set; }
+    public Guid? PlanId { get; set; }
     public string Topic { get; set; } = null!;
     public string PayloadJson { get; set; } = null!;
     public RobotCommandOutboxStatus Status { get; set; }
@@ -21,6 +21,6 @@ public sealed class RobotCommandOutbox
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public Robot Robot { get; set; } = null!;
-    public Trip Trip { get; set; } = null!;
-    public DispatchPlan Plan { get; set; } = null!;
+    public Trip? Trip { get; set; }
+    public DispatchPlan? Plan { get; set; }
 }

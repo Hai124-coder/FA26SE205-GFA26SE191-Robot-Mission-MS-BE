@@ -12,7 +12,8 @@ internal static class RobotCommandOutboxModelBuilderExtensions
             entity.HasKey(value => value.Id).HasName("RobotCommandOutbox_pkey");
             entity.ToTable("RobotCommandOutbox", table =>
             {
-                table.HasCheckConstraint("RobotCommandOutbox_CommandType_check", "\"CommandType\" = 'DISPATCH_TRIP'");
+                table.HasCheckConstraint("RobotCommandOutbox_CommandType_check", "\"CommandType\" IN ('DISPATCH_TRIP', 'STOP', 'RESUME')");
+                table.HasCheckConstraint("RobotCommandOutbox_CommandShape_check", "(\"CommandType\" = 'DISPATCH_TRIP' AND \"TripId\" IS NOT NULL AND \"PlanId\" IS NOT NULL AND \"Topic\" ~ '^rmms/v1/[^/]+/order$') OR (\"CommandType\" IN ('STOP', 'RESUME') AND \"TripId\" IS NULL AND \"PlanId\" IS NULL AND \"Topic\" ~ '^rmms/v1/[^/]+/command$' AND jsonb_typeof(\"PayloadJson\" -> 'commandId') = 'string' AND jsonb_typeof(\"PayloadJson\" -> 'command') = 'string' AND jsonb_typeof(\"PayloadJson\" -> 'issuedAt') = 'string' AND \"PayloadJson\" ->> 'commandId' = \"Id\"::text AND \"PayloadJson\" ->> 'command' = \"CommandType\")");
                 table.HasCheckConstraint("RobotCommandOutbox_AttemptCount_check", "\"AttemptCount\" >= 0");
             });
             entity.Property(value => value.Id).ValueGeneratedNever();

@@ -57,8 +57,8 @@ public sealed class PlanReadService(RobotMissionDbContext db) : IPlanReadService
         var items = await trips.OrderByDescending(value => value.CreatedAt).ThenBy(value => value.TripCode).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToListAsync(cancellationToken);
         var tripIds = items.Select(value => value.Id).ToList();
         var dispatches = await db.RobotCommandOutbox.AsNoTracking()
-            .Where(value => tripIds.Contains(value.TripId) && value.CommandType == "DISPATCH_TRIP")
-            .ToDictionaryAsync(value => value.TripId, cancellationToken);
+            .Where(value => value.TripId.HasValue && tripIds.Contains(value.TripId.Value) && value.CommandType == "DISPATCH_TRIP")
+            .ToDictionaryAsync(value => value.TripId!.Value, cancellationToken);
         return PlanReadResult<PagedResponse<TripListItemResponse>>.Success(new PagedResponse<TripListItemResponse> { Items = items.Select(value => ToTripItem(value, dispatches.GetValueOrDefault(value.Id))).ToList(), Page = query.Page, PageSize = query.PageSize, Total = total });
     }
 
