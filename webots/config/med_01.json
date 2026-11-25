@@ -4,6 +4,7 @@
     "host": "localhost",
     "port": 1883,
     "stateTopic": "rmms/v1/{robotId}/state",
+    "commandTopic": "rmms/v1/{robotId}/command",
     "telemetryIntervalSeconds": 1
   },
   "simulation": {

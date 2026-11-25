@@ -1,7 +1,8 @@
-"""Safe local-command controller for the MED-01 Webots robot.
+"""Safe Webots controller for the MED-01 simulation robot.
 
-The command comes from the E-puck's ``customData`` field so it can be tested
-inside Webots before the controller is connected to MQTT. Supported values:
+The E-puck's ``customData`` field remains available for local simulation tests.
+The controller also receives the backend's MQTT safety commands. Supported local
+values are:
 
 * ``STOP``
 * ``MOVE_FORWARD``
@@ -11,8 +12,12 @@ inside Webots before the controller is connected to MQTT. Supported values:
 import json
 import math
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Lock
+from uuid import UUID
 
 from controller import Robot
 import paho.mqtt.client as mqtt
@@ -42,6 +47,8 @@ def load_config() -> dict:
         raise RuntimeError("Configuration requires mqtt.port between 1 and 65535.")
     if not isinstance(mqtt_config.get("stateTopic"), str) or "{robotId}" not in mqtt_config["stateTopic"]:
         raise RuntimeError("Configuration requires mqtt.stateTopic containing {robotId}.")
+    if not isinstance(mqtt_config.get("commandTopic"), str) or "{robotId}" not in mqtt_config["commandTopic"]:
+        raise RuntimeError("Configuration requires mqtt.commandTopic containing {robotId}.")
 
     return config
 
@@ -54,6 +61,7 @@ ROBOT_ID = config["robotId"].strip()
 MQTT_HOST = mqtt_config["host"].strip()
 MQTT_PORT = mqtt_config["port"]
 MQTT_TOPIC = mqtt_config["stateTopic"].format(robotId=ROBOT_ID)
+MQTT_COMMAND_TOPIC = mqtt_config["commandTopic"].format(robotId=ROBOT_ID)
 TELEMETRY_INTERVAL_SECONDS = float(mqtt_config.get("telemetryIntervalSeconds", 1.0))
 DEFAULT_COMMAND_DURATION_SECONDS = float(simulation_config.get("defaultCommandDurationSeconds", 2.0))
 MAX_COMMAND_DURATION_SECONDS = float(simulation_config.get("maxCommandDurationSeconds", 10.0))
@@ -111,7 +119,11 @@ def current_pose() -> tuple[float, float, float]:
 def on_mqtt_connect(client, userdata, connect_flags, reason_code, properties) -> None:
     """Report connection state without stopping the simulation on failures."""
     if reason_code == 0:
-        print(f"MED-01 MQTT connected to {MQTT_HOST}:{MQTT_PORT}.")
+        result, _ = client.subscribe(MQTT_COMMAND_TOPIC, qos=1)
+        if result == mqtt.MQTT_ERR_SUCCESS:
+            print(f"MED-01 MQTT connected to {MQTT_HOST}:{MQTT_PORT}; subscribed to {MQTT_COMMAND_TOPIC}.")
+        else:
+            print(f"MED-01 MQTT connected but could not subscribe to {MQTT_COMMAND_TOPIC}: {result}.")
     else:
         print(f"MED-01 MQTT connection refused: {reason_code}.")
 
@@ -119,6 +131,58 @@ def on_mqtt_connect(client, userdata, connect_flags, reason_code, properties) ->
 def on_mqtt_disconnect(client, userdata, disconnect_flags, reason_code, properties) -> None:
     if reason_code != 0:
         print("MED-01 MQTT disconnected; reconnecting in the background.")
+
+
+pending_remote_commands: Queue[tuple[str, str]] = Queue()
+processed_command_ids: deque[str] = deque(maxlen=100)
+processed_command_id_set: set[str] = set()
+processed_command_lock = Lock()
+
+
+def remember_command(command_id: str) -> bool:
+    """Return False for a duplicate command ID and retain only the latest 100 IDs."""
+    with processed_command_lock:
+        if command_id in processed_command_id_set:
+            return False
+        if len(processed_command_ids) == processed_command_ids.maxlen:
+            processed_command_id_set.remove(processed_command_ids.popleft())
+        processed_command_ids.append(command_id)
+        processed_command_id_set.add(command_id)
+        return True
+
+
+def on_mqtt_message(client, userdata, message) -> None:
+    """Validate inbound MQTT data and queue it for the Webots simulation thread.
+
+    MQTT callbacks execute on Paho's network thread. They must never access a
+    Webots motor, sensor, or Robot object directly.
+    """
+    if message.topic != MQTT_COMMAND_TOPIC:
+        print(f"MED-01 ignored command on unexpected topic: {message.topic}.")
+        return
+
+    try:
+        payload = json.loads(message.payload.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("payload must be a JSON object")
+        command_id = str(UUID(payload["commandId"]))
+        command = payload["command"]
+        issued_at = payload["issuedAt"]
+        if command not in {"STOP", "RESUME"}:
+            raise ValueError("command must be STOP or RESUME")
+        if not isinstance(issued_at, str) or not issued_at.strip():
+            raise ValueError("issuedAt must be a non-empty ISO-8601 string")
+        datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        print(f"MED-01 rejected malformed remote command: {error}.")
+        return
+
+    if not remember_command(command_id):
+        print(f"MED-01 ignored duplicate remote command {command_id}.")
+        return
+
+    pending_remote_commands.put((command_id, command))
+    print(f"MED-01 queued remote {command} command {command_id}.")
 
 
 def create_mqtt_client() -> mqtt.Client:
@@ -130,6 +194,7 @@ def create_mqtt_client() -> mqtt.Client:
     )
     client.on_connect = on_mqtt_connect
     client.on_disconnect = on_mqtt_disconnect
+    client.on_message = on_mqtt_message
     client.reconnect_delay_set(min_delay=1, max_delay=5)
     client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=20)
     client.loop_start()
@@ -188,12 +253,30 @@ active_until = None
 last_custom_data = None
 next_pose_log_at = 0.0
 last_telemetry_pose = None
+remote_stop_latched = False
 mqtt_client = create_mqtt_client()
 print(f"MED-01 controller ready for local commands. Robot: {robot.getName()}")
 print(f"MED-01 Webots Python: {sys.executable}")
 print(f"MED-01 configuration: {CONFIG_PATH}")
 
 while robot.step(timestep) != -1:
+    while True:
+        try:
+            command_id, command = pending_remote_commands.get_nowait()
+        except Empty:
+            break
+
+        if command == "STOP":
+            remote_stop_latched = True
+            stop()
+            active_until = None
+            print(f"MED-01 stopped by remote command {command_id}.")
+        else:  # RESUME has already been validated by on_mqtt_message.
+            remote_stop_latched = False
+            stop()
+            active_until = None
+            print(f"MED-01 remote stop cleared by command {command_id}; waiting for a new route or local command.")
+
     custom_data = robot.getCustomData()
 
     if custom_data != last_custom_data:
@@ -210,10 +293,14 @@ while robot.step(timestep) != -1:
             stop()
             active_until = None
             print("MED-01 stopped by local command.")
-        elif command == "MOVE_FORWARD":
+        elif command == "MOVE_FORWARD" and not remote_stop_latched:
             move_forward()
             active_until = robot.getTime() + duration_seconds
             print(f"MED-01 moving forward for {duration_seconds:g} seconds.")
+        elif command == "MOVE_FORWARD":
+            stop()
+            active_until = None
+            print("MED-01 ignored local movement because remote STOP is active.")
         else:
             stop()
             active_until = None
