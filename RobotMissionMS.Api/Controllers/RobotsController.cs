@@ -12,7 +12,10 @@ namespace RobotMissionMS.Api.Controllers;
 [ApiController]
 [Route("api/v1/robots")]
 [Authorize]
-public sealed class RobotsController(IRobotService robotService, IChargingSessionService chargingSessions) : ControllerBase
+public sealed class RobotsController(
+    IRobotService robotService,
+    IChargingSessionService chargingSessions,
+    IRobotControlCommandService controlCommands) : ControllerBase
 {
     /// <summary>
     /// Returns robots with their current state snapshot (SC-05, SC-13, SC-14).
@@ -62,6 +65,60 @@ public sealed class RobotsController(IRobotService robotService, IChargingSessio
                 title: "The requested robot was not found.",
                 statusCode: StatusCodes.Status404NotFound),
             _ => throw new InvalidOperationException("Robot service returned an invalid detail result.")
+        };
+    }
+
+    /// <summary>
+    /// Queues an immediate STOP or RESUME command for a connected robot.
+    /// STOP is a safety stop; RESUME only clears that stop on the robot and does not restart a prior trip.
+    /// </summary>
+    [HttpPost("{id:guid}/commands")]
+    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [ProducesResponseType(typeof(RobotControlCommandResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RobotControlCommandResponse>> QueueControlCommand(
+        Guid id,
+        [FromBody] RobotControlCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+
+        var operatorFloor = User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null;
+        if (User.IsInRole("OPERATOR") && string.IsNullOrWhiteSpace(operatorFloor))
+        {
+            return Problem(
+                type: "OPERATOR_FLOOR_NOT_CONFIGURED",
+                title: "The operator account has no assigned floor.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var result = await controlCommands.EnqueueAsync(actorUserId, id, operatorFloor, request, cancellationToken);
+        if (result.IsSuccess)
+            return AcceptedAtAction(nameof(GetRobotById), new { id }, result.Response);
+
+        return result.Error switch
+        {
+            RobotControlCommandError.InvalidRequest => Problem(
+                type: "ROBOT_COMMAND_INVALID_REQUEST",
+                title: "Command must be STOP or RESUME.",
+                statusCode: StatusCodes.Status400BadRequest),
+            RobotControlCommandError.RobotNotFound => Problem(
+                type: "ROBOTS_NOT_FOUND",
+                title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound),
+            RobotControlCommandError.FloorForbidden => Problem(
+                type: "ROBOT_COMMAND_FLOOR_FORBIDDEN",
+                title: "The robot is outside the operator's assigned floor.",
+                statusCode: StatusCodes.Status403Forbidden),
+            RobotControlCommandError.RobotNotConnected => Problem(
+                type: "ROBOT_COMMAND_ROBOT_OFFLINE",
+                title: "The robot is not connected, so the command was not queued.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException("Robot control command service returned an invalid result.")
         };
     }
 
