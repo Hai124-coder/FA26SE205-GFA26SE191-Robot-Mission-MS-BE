@@ -208,6 +208,22 @@ public sealed class RobotsController(
                 type: "ROBOTS_STATION_NOT_FOUND",
                 title: "The specified home charging station was not found.",
                 statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.HomeStationWrongZone => Problem(
+                type: "ROBOTS_STATION_WRONG_FLOOR",
+                title: "The home charging station must be on the robot's floor.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.HomeStationLocationInactive => Problem(
+                type: "ROBOTS_STATION_LOCATION_INACTIVE",
+                title: "The home charging station's location is inactive.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.HomeStationOutOfService => Problem(
+                type: "ROBOTS_STATION_OUT_OF_SERVICE",
+                title: "The home charging station is out of service.",
+                statusCode: StatusCodes.Status400BadRequest),
+            CreateRobotError.HomeStationIncompatibleType => Problem(
+                type: "ROBOTS_STATION_TYPE_INCOMPATIBLE",
+                title: "The home charging station is incompatible with this robot type.",
+                statusCode: StatusCodes.Status400BadRequest),
             CreateRobotError.DuplicateCode       => Problem(
                 type: "ROBOTS_DUPLICATE_CODE",
                 title: "A robot with this code already exists.",
@@ -246,6 +262,22 @@ public sealed class RobotsController(
             UpdateRobotError.HomeStationNotFound => Problem(
                 type: "ROBOTS_STATION_NOT_FOUND",
                 title: "The specified home charging station was not found.",
+                statusCode: StatusCodes.Status400BadRequest),
+            UpdateRobotError.HomeStationWrongZone => Problem(
+                type: "ROBOTS_STATION_WRONG_FLOOR",
+                title: "The home charging station must be on the robot's floor.",
+                statusCode: StatusCodes.Status400BadRequest),
+            UpdateRobotError.HomeStationLocationInactive => Problem(
+                type: "ROBOTS_STATION_LOCATION_INACTIVE",
+                title: "The home charging station's location is inactive.",
+                statusCode: StatusCodes.Status400BadRequest),
+            UpdateRobotError.HomeStationOutOfService => Problem(
+                type: "ROBOTS_STATION_OUT_OF_SERVICE",
+                title: "The home charging station is out of service.",
+                statusCode: StatusCodes.Status400BadRequest),
+            UpdateRobotError.HomeStationIncompatibleType => Problem(
+                type: "ROBOTS_STATION_TYPE_INCOMPATIBLE",
+                title: "The home charging station is incompatible with this robot type.",
                 statusCode: StatusCodes.Status400BadRequest),
             _ => throw new InvalidOperationException("Robot service returned an invalid update result.")
         };

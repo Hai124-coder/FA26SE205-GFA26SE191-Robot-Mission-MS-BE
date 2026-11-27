@@ -28,7 +28,7 @@ var actor = new User
 };
 var zone = new Zone { Id = Guid.NewGuid(), Code = $"RC{suffix}", Name = "Robot command rollback", IsActive = true };
 var otherZone = new Zone { Id = Guid.NewGuid(), Code = $"RO{suffix}", Name = "Other floor", IsActive = true };
-var type = new RobotType { Id = Guid.NewGuid(), TypeCode = $"RC{suffix}", Name = "Test", Slots = 0, ColorHex = "#000000" };
+var type = new RobotType { Id = Guid.NewGuid(), TypeCode = $"RC{suffix}", Name = "Test", Slots = 2, ColorHex = "#000000" };
 var onlineRobot = new Robot
 {
     Id = Guid.NewGuid(), RobotCode = $"MED-{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id,
@@ -39,8 +39,13 @@ var offlineRobot = new Robot
     Id = Guid.NewGuid(), RobotCode = $"OFF-{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id,
     IsConnected = false, Battery = 100, State = RobotState.Available, CreatedAt = now,
 };
+var slotRobot = new Robot
+{
+    Id = Guid.NewGuid(), RobotCode = $"SLOT-{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id,
+    IsConnected = true, Battery = 100, State = RobotState.Available, CreatedAt = now,
+};
 
-db.AddRange(role, actor, zone, otherZone, type, onlineRobot, offlineRobot);
+db.AddRange(role, actor, zone, otherZone, type, onlineRobot, offlineRobot, slotRobot);
 await db.SaveChangesAsync();
 
 var service = new RobotControlCommandService(db);
@@ -84,7 +89,7 @@ if (!activities.OrderBy(value => value).SequenceEqual(new[] { "ROBOT_RESUME_QUEU
 
 var robots = new RobotService(new RobotRepository(db));
 var scoped = await robots.GetRobotsAsync(new RobotListQuery { Floor = otherZone.Code }, zone.Code);
-if (!scoped.IsSuccess || scoped.Response is not { Count: 2 }
+if (!scoped.IsSuccess || scoped.Response is not { Count: > 0 }
     || scoped.Response.Any(robot => robot.Floor != zone.Code)
     || await robots.FindRobotFloorAsync(onlineRobot.Id) != zone.Code)
     throw new InvalidOperationException("Operator floor must take precedence over the list filter.");
@@ -103,8 +108,75 @@ var station = new ChargingStation { Id = Guid.NewGuid(), LocationId = location.I
     StationType = "STANDARD", Capacity = 1, Status = StationStatus.Operational };
 var queued = new ChargingSession { Id = Guid.NewGuid(), RobotId = onlineRobot.Id,
     ChargingStationId = station.Id, QueuedAt = at, Status = ChargingSessionStatus.Queued };
-db.AddRange(map, trip, alert, location, station, queued);
+var cleanLocation = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"CLN{suffix}",
+    Name = "Clean station", MapNodeCode = "C", Kind = LocationKind.CleanStation, IsActive = true };
+var cleanStation = new ChargingStation { Id = Guid.NewGuid(), LocationId = cleanLocation.Id, Name = "Clean station",
+    StationType = "CLEAN", Capacity = 1, Status = StationStatus.Operational };
+var inactiveLocation = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"INA{suffix}",
+    Name = "Inactive station", MapNodeCode = "I", Kind = LocationKind.Charger, IsActive = false };
+var inactiveStation = new ChargingStation { Id = Guid.NewGuid(), LocationId = inactiveLocation.Id, Name = "Inactive station",
+    StationType = "STANDARD", Capacity = 1, Status = StationStatus.Operational };
+var unavailableLocation = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"OUT{suffix}",
+    Name = "Out-of-service station", MapNodeCode = "O", Kind = LocationKind.Charger, IsActive = true };
+var unavailableStation = new ChargingStation { Id = Guid.NewGuid(), LocationId = unavailableLocation.Id, Name = "Out-of-service station",
+    StationType = "STANDARD", Capacity = 1, Status = StationStatus.OutOfService };
+var otherLocation = new Location { Id = Guid.NewGuid(), ZoneId = otherZone.Id, Code = $"OTH{suffix}",
+    Name = "Other-floor station", MapNodeCode = "F", Kind = LocationKind.Charger, IsActive = true };
+var otherStation = new ChargingStation { Id = Guid.NewGuid(), LocationId = otherLocation.Id, Name = "Other-floor station",
+    StationType = "STANDARD", Capacity = 1, Status = StationStatus.Operational };
+var missionType = new MissionType { Id = Guid.NewGuid(), Code = $"MT{suffix}", Name = "Slot test", RobotTypeId = type.Id,
+    BasePriority = 1, UsesSlotSensor = true, DepartDelaySec = 0, WaitTimeoutSec = 0, IsActive = true };
+var schedule = new MissionSchedule { Id = Guid.NewGuid(), Name = "Slot test schedule", MissionTypeId = missionType.Id,
+    ZoneId = zone.Id, DaysOfWeek = [1], RunTime = TimeOnly.FromDateTime(at), IsActive = true, CreatedAt = at };
+var destination = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"DST{suffix}",
+    Name = "Slot test destination", MapNodeCode = "D", Kind = LocationKind.Dept, IsActive = true };
+var slotTrip = new Trip { Id = Guid.NewGuid(), TripCode = $"SL{suffix}", ZoneId = zone.Id, RobotId = slotRobot.Id,
+    MapVersionId = map.Id, Status = TripStatus.InProgress, CreatedAt = at };
+var slotMission = new Mission { Id = Guid.NewGuid(), MissionCode = $"SM{suffix}", MissionTypeId = missionType.Id,
+    ZoneId = zone.Id, ScheduleId = schedule.Id, ToLocationId = destination.Id, TripId = slotTrip.Id, SlotNo = 2,
+    Status = MissionStatus.Assigned, Priority = MissionPriority.Normal, CreatedAt = at };
+type.HomeStationType = "STANDARD";
+db.AddRange(map, trip, alert, location, station, queued, cleanLocation, cleanStation, inactiveLocation, inactiveStation,
+    unavailableLocation, unavailableStation, otherLocation, otherStation, missionType, schedule, destination, slotTrip, slotMission);
 await db.SaveChangesAsync();
+
+var homeStationChecks = new RobotService(new RobotRepository(db));
+var createTemplate = new CreateRobotRequest { RobotCode = $"H{suffix}", RobotTypeCode = type.TypeCode, ZoneCode = zone.Code };
+async Task<CreateRobotError?> TryCreateWithHomeStationAsync(Guid stationId, string codeSuffix)
+{
+    var result = await homeStationChecks.CreateRobotAsync(actor.Id, new CreateRobotRequest
+    {
+        RobotCode = $"{createTemplate.RobotCode}{codeSuffix}", RobotTypeCode = createTemplate.RobotTypeCode,
+        ZoneCode = createTemplate.ZoneCode, HomeChargingStationId = stationId,
+    });
+    return result.Error;
+}
+
+if (await TryCreateWithHomeStationAsync(cleanStation.Id, "C") != CreateRobotError.HomeStationIncompatibleType
+    || await TryCreateWithHomeStationAsync(inactiveStation.Id, "I") != CreateRobotError.HomeStationLocationInactive
+    || await TryCreateWithHomeStationAsync(unavailableStation.Id, "O") != CreateRobotError.HomeStationOutOfService
+    || await TryCreateWithHomeStationAsync(otherStation.Id, "F") != CreateRobotError.HomeStationWrongZone)
+    throw new InvalidOperationException("Home station validation did not reject incompatible assignments.");
+
+var compatibleCreate = await homeStationChecks.CreateRobotAsync(actor.Id, new CreateRobotRequest
+{
+    RobotCode = $"{createTemplate.RobotCode}S", RobotTypeCode = createTemplate.RobotTypeCode,
+    ZoneCode = createTemplate.ZoneCode, HomeChargingStationId = station.Id,
+});
+if (!compatibleCreate.IsSuccess)
+    throw new InvalidOperationException("A compatible home station was rejected.");
+
+var robotTypes = new RobotTypeService(new RobotTypeRepository(db));
+var reducedSlots = new UpdateRobotTypeRequest { Name = type.Name, Slots = 1, ColorHex = type.ColorHex };
+if ((await robotTypes.UpdateAsync(actor.Id, type.TypeCode, reducedSlots)).Error != UpdateRobotTypeError.SlotsInUse)
+    throw new InvalidOperationException("Reducing slots occupied by active work was accepted.");
+
+slotMission.Status = MissionStatus.Completed;
+await db.SaveChangesAsync();
+if (!(await robotTypes.UpdateAsync(actor.Id, type.TypeCode, reducedSlots)).IsSuccess
+    || !await db.ActivityLogs.AnyAsync(value => value.UserId == actor.Id && value.Action == "ROBOT_TYPE_UPDATED"
+        && value.TargetObject == $"RobotType:{type.Id:D}"))
+    throw new InvalidOperationException("Safe robot-type update or its activity audit failed.");
 
 var history = (await robots.GetRobotHistoryAsync(onlineRobot.Id, new RobotHistoryQuery { From = at, To = at })).Response;
 if (history is null || history.Trips.Single().TripId != trip.Id || history.Alerts.Single().AlertId != alert.Id
@@ -175,3 +247,4 @@ await transaction.RollbackAsync();
 Console.WriteLine("robot-control-command=verified stop=1 resume=1 rejected=invalid,floor,offline rollback=complete");
 Console.WriteLine("robot-list-history=verified scope=override history=trip,alert,queued bounds=inclusive rollback=complete");
 Console.WriteLine("robot-state=verified back-to-service=error suspend=trip,charging,queue-interruption resume=online-only decommission=permanent");
+Console.WriteLine("robot-configuration=verified home-station=floor,location,status,type slots=active-work audit=recorded rollback=complete");

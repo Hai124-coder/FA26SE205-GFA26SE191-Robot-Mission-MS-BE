@@ -6,6 +6,7 @@ public enum UpdateRobotTypeError
 {
     InvalidRequest,
     NotFound,
+    SlotsInUse,
 }
 
 public sealed class UpdateRobotTypeResult

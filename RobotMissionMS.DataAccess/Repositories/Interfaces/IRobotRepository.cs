@@ -49,8 +49,21 @@ public interface IRobotRepository
     /// <summary>Looks up a Zone id by Code. Returns null if not found.</summary>
     Task<Guid?> FindZoneIdByCodeAsync(string zoneCode, CancellationToken cancellationToken = default);
 
-    /// <summary>Returns true when a ChargingStation with the given id exists.</summary>
-    Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Validates whether a station can be assigned as a robot's home station.
+    /// A home station must be on the robot's zone, have an active location, be
+    /// operational, and match the robot type's configured station type (when set).
+    /// </summary>
+    Task<HomeStationAssignmentError?> ValidateHomeChargingStationAsync(
+        Guid robotTypeId,
+        Guid zoneId,
+        Guid stationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns the robot type and zone needed to validate a home-station update.</summary>
+    Task<RobotHomeStationContext?> GetRobotHomeStationContextAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates HomeChargingStationId of a robot. Returns the updated row or null if not found.
@@ -124,6 +137,17 @@ public enum CreateRobotRepositoryError
 {
     DuplicateCode,
 }
+
+public enum HomeStationAssignmentError
+{
+    NotFound,
+    WrongZone,
+    LocationInactive,
+    StationOutOfService,
+    IncompatibleType,
+}
+
+public sealed record RobotHomeStationContext(Guid RobotTypeId, Guid ZoneId);
 
 public sealed class CreateRobotRepositoryResult
 {

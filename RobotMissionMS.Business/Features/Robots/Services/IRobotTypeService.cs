@@ -10,6 +10,7 @@ public interface IRobotTypeService
     /// Updates the editable fields of a robot type identified by its TypeCode.
     /// </summary>
     Task<UpdateRobotTypeResult> UpdateAsync(
+        Guid actorUserId,
         string typeCode,
         UpdateRobotTypeRequest request,
         CancellationToken cancellationToken = default);

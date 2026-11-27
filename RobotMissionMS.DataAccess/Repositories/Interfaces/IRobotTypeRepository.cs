@@ -13,10 +13,17 @@ public interface IRobotTypeRepository
     Task<RobotTypeRow?> FindByTypeCodeAsync(string typeCode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns false when active assigned work occupies a slot that would be
+    /// removed by reducing this type's slot count.
+    /// </summary>
+    Task<bool> CanSetSlotsAsync(Guid id, int slots, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Updates the editable fields of a robot type. Returns true if the row was found and updated.
     /// </summary>
     Task<bool> UpdateAsync(
         Guid id,
+        Guid actorUserId,
         string name,
         int slots,
         string colorHex,

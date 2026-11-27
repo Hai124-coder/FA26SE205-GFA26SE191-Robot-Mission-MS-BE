@@ -269,9 +269,48 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             .Select(z => (Guid?)z.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
-    public Task<bool> ChargingStationExistsAsync(Guid stationId, CancellationToken cancellationToken = default) =>
-        db.ChargingStations.AsNoTracking()
-            .AnyAsync(cs => cs.Id == stationId, cancellationToken);
+    public async Task<HomeStationAssignmentError?> ValidateHomeChargingStationAsync(
+        Guid robotTypeId,
+        Guid zoneId,
+        Guid stationId,
+        CancellationToken cancellationToken = default)
+    {
+        var station = await db.ChargingStations.AsNoTracking()
+            .Where(value => value.Id == stationId)
+            .Select(value => new
+            {
+                value.StationType,
+                value.Status,
+                LocationIsActive = value.Location.IsActive,
+                LocationZoneId = value.Location.ZoneId,
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (station is null) return HomeStationAssignmentError.NotFound;
+        if (station.LocationZoneId != zoneId) return HomeStationAssignmentError.WrongZone;
+        if (!station.LocationIsActive) return HomeStationAssignmentError.LocationInactive;
+        if (station.Status != StationStatus.Operational) return HomeStationAssignmentError.StationOutOfService;
+
+        var requiredStationType = await db.RobotTypes.AsNoTracking()
+            .Where(value => value.Id == robotTypeId)
+            .Select(value => value.HomeStationType)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        // A null/blank HomeStationType means this type has no station-type restriction yet.
+        if (!string.IsNullOrWhiteSpace(requiredStationType)
+            && !string.Equals(requiredStationType, station.StationType, StringComparison.OrdinalIgnoreCase))
+            return HomeStationAssignmentError.IncompatibleType;
+
+        return null;
+    }
+
+    public Task<RobotHomeStationContext?> GetRobotHomeStationContextAsync(
+        Guid robotId,
+        CancellationToken cancellationToken = default) =>
+        db.Robots.AsNoTracking()
+            .Where(value => value.Id == robotId)
+            .Select(value => new RobotHomeStationContext(value.RobotTypeId, value.ZoneId))
+            .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<CreateRobotRow?> UpdateRobotAsync(
         Guid  robotId,

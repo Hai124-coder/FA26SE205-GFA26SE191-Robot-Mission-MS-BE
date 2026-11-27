@@ -232,10 +232,10 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
 
         if (request.HomeChargingStationId.HasValue)
         {
-            var stationExists = await repository.ChargingStationExistsAsync(
-                request.HomeChargingStationId.Value, cancellationToken);
-            if (!stationExists)
-                return CreateRobotResult.Failure(CreateRobotError.HomeStationNotFound);
+            var stationError = await repository.ValidateHomeChargingStationAsync(
+                typeId.Value, zoneId.Value, request.HomeChargingStationId.Value, cancellationToken);
+            if (stationError is not null)
+                return CreateRobotResult.Failure(MapCreateHomeStationError(stationError.Value));
         }
 
         var repoResult = await repository.CreateRobotAsync(
@@ -275,10 +275,14 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
 
         if (request.HomeChargingStationId.HasValue)
         {
-            var stationExists = await repository.ChargingStationExistsAsync(
-                request.HomeChargingStationId.Value, cancellationToken);
-            if (!stationExists)
-                return UpdateRobotResult.Failure(UpdateRobotError.HomeStationNotFound);
+            var context = await repository.GetRobotHomeStationContextAsync(robotId, cancellationToken);
+            if (context is null)
+                return UpdateRobotResult.Failure(UpdateRobotError.NotFound);
+
+            var stationError = await repository.ValidateHomeChargingStationAsync(
+                context.RobotTypeId, context.ZoneId, request.HomeChargingStationId.Value, cancellationToken);
+            if (stationError is not null)
+                return UpdateRobotResult.Failure(MapUpdateHomeStationError(stationError.Value));
         }
 
         var row = await repository.UpdateRobotAsync(robotId, request.HomeChargingStationId, actorUserId, cancellationToken);
@@ -404,6 +408,26 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         };
         return (int)result >= 0;
     }
+
+    private static CreateRobotError MapCreateHomeStationError(HomeStationAssignmentError error) => error switch
+    {
+        HomeStationAssignmentError.NotFound => CreateRobotError.HomeStationNotFound,
+        HomeStationAssignmentError.WrongZone => CreateRobotError.HomeStationWrongZone,
+        HomeStationAssignmentError.LocationInactive => CreateRobotError.HomeStationLocationInactive,
+        HomeStationAssignmentError.StationOutOfService => CreateRobotError.HomeStationOutOfService,
+        HomeStationAssignmentError.IncompatibleType => CreateRobotError.HomeStationIncompatibleType,
+        _ => throw new InvalidOperationException("Unexpected home-station assignment error.")
+    };
+
+    private static UpdateRobotError MapUpdateHomeStationError(HomeStationAssignmentError error) => error switch
+    {
+        HomeStationAssignmentError.NotFound => UpdateRobotError.HomeStationNotFound,
+        HomeStationAssignmentError.WrongZone => UpdateRobotError.HomeStationWrongZone,
+        HomeStationAssignmentError.LocationInactive => UpdateRobotError.HomeStationLocationInactive,
+        HomeStationAssignmentError.StationOutOfService => UpdateRobotError.HomeStationOutOfService,
+        HomeStationAssignmentError.IncompatibleType => UpdateRobotError.HomeStationIncompatibleType,
+        _ => throw new InvalidOperationException("Unexpected home-station assignment error.")
+    };
 
     private static string RobotStateToString(RobotState state) => state switch
     {

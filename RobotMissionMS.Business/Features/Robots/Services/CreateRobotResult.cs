@@ -8,6 +8,10 @@ public enum CreateRobotError
     RobotTypeNotFound,
     ZoneNotFound,
     HomeStationNotFound,
+    HomeStationWrongZone,
+    HomeStationLocationInactive,
+    HomeStationOutOfService,
+    HomeStationIncompatibleType,
     DuplicateCode,
 }
 

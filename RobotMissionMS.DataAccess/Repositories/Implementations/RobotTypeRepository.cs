@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.DataAccess.Entities;
+using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -48,8 +50,21 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 rt.HomeStationType))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<bool> CanSetSlotsAsync(Guid id, int slots, CancellationToken cancellationToken = default)
+    {
+        var occupiedRemovedSlot = await db.Missions.AsNoTracking()
+            .AnyAsync(mission => mission.Trip != null
+                && mission.Trip.Robot.RobotTypeId == id
+                && mission.SlotNo > slots
+                && (mission.Status == MissionStatus.Assigned || mission.Status == MissionStatus.InProgress),
+                cancellationToken);
+
+        return !occupiedRemovedSlot;
+    }
+
     public async Task<bool> UpdateAsync(
         Guid id,
+        Guid actorUserId,
         string name,
         int slots,
         string colorHex,
@@ -79,6 +94,16 @@ public sealed class RobotTypeRepository(RobotMissionDbContext db) : IRobotTypeRe
                 .SetProperty(rt => rt.HomeStationType, homeStationType),
                 cancellationToken);
 
-        return updated > 0;
+        if (updated == 0) return false;
+
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = actorUserId,
+            Timestamp = DateTime.UtcNow,
+            Action = "ROBOT_TYPE_UPDATED",
+            TargetObject = $"RobotType:{id:D}",
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }

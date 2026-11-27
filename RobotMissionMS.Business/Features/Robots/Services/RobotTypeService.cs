@@ -29,6 +29,7 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
     }
 
     public async Task<UpdateRobotTypeResult> UpdateAsync(
+        Guid actorUserId,
         string typeCode,
         UpdateRobotTypeRequest request,
         CancellationToken cancellationToken = default)
@@ -47,8 +48,13 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
         if (existing is null)
             return UpdateRobotTypeResult.Failure(UpdateRobotTypeError.NotFound);
 
-        await repository.UpdateAsync(
+        if (request.Slots < existing.Slots
+            && !await repository.CanSetSlotsAsync(existing.Id, request.Slots, cancellationToken))
+            return UpdateRobotTypeResult.Failure(UpdateRobotTypeError.SlotsInUse);
+
+        var updated = await repository.UpdateAsync(
             existing.Id,
+            actorUserId,
             request.Name.Trim(),
             request.Slots,
             request.ColorHex.Trim(),
@@ -61,6 +67,9 @@ public sealed class RobotTypeService(IRobotTypeRepository repository) : IRobotTy
             request.SpeedMs,
             request.HomeStationType?.Trim(),
             cancellationToken);
+
+        if (!updated)
+            return UpdateRobotTypeResult.Failure(UpdateRobotTypeError.NotFound);
 
         return UpdateRobotTypeResult.Success(new RobotTypeResponse(
             existing.Id,

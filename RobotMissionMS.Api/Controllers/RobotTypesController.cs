@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.IdentityModel.Tokens.Jwt;
 using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.Business.Features.Robots.DTOs;
 using RobotMissionMS.Business.Features.Robots.Services;
@@ -42,7 +43,8 @@ public sealed class RobotTypesController(IRobotTypeService robotTypeService) : C
         [FromBody] UpdateRobotTypeRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await robotTypeService.UpdateAsync(type, request, cancellationToken);
+        if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        var result = await robotTypeService.UpdateAsync(actorUserId, type, request, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
 
@@ -56,7 +58,14 @@ public sealed class RobotTypesController(IRobotTypeService robotTypeService) : C
                 type: "ROBOT_TYPES_NOT_FOUND",
                 title: "The requested robot type was not found.",
                 statusCode: StatusCodes.Status404NotFound),
+            UpdateRobotTypeError.SlotsInUse => Problem(
+                type: "ROBOT_TYPES_SLOTS_IN_USE",
+                title: "The slot count cannot be reduced while active work occupies a removed slot.",
+                statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException("Robot type service returned an invalid update result.")
         };
     }
+
+    private bool TryGetActor(out Guid userId) =>
+        Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, out userId);
 }

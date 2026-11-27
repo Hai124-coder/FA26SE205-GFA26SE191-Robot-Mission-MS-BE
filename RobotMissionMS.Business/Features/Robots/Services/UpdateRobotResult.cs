@@ -6,6 +6,10 @@ public enum UpdateRobotError
 {
     NotFound,
     HomeStationNotFound,
+    HomeStationWrongZone,
+    HomeStationLocationInactive,
+    HomeStationOutOfService,
+    HomeStationIncompatibleType,
 }
 
 public sealed class UpdateRobotResult
