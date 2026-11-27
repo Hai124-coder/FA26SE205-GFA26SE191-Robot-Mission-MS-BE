@@ -132,9 +132,6 @@ public sealed class AuthService(
             return RefreshResult.Failure(RefreshError.AccountInactive);
         }
 
-        if (user.MustChangePassword)
-            return RefreshResult.Failure(RefreshError.PasswordChangeRequired);
-
         if (current.ExpiresAt <= now.UtcDateTime)
             return RefreshResult.Failure(RefreshError.InvalidRefreshToken);
 
@@ -145,6 +142,11 @@ public sealed class AuthService(
             await transaction.CommitAsync(cancellationToken);
             return RefreshResult.Failure(RefreshError.InvalidRefreshToken);
         }
+
+        // A revoked/expired token must never disclose the user's current password state.
+        // Only an otherwise-valid refresh token is refused for password change.
+        if (user.MustChangePassword)
+            return RefreshResult.Failure(RefreshError.PasswordChangeRequired);
 
         var refresh = refreshTokens.Generate();
         if (refresh.CreatedAt.UtcDateTime >= current.ExpiresAt)
