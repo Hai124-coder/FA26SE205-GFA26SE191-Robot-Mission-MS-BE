@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Locations.DTOs;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
@@ -7,7 +8,8 @@ namespace RobotMissionMS.Business.Features.Locations.Services;
 
 public sealed class LocationService(ILocationRepository repository) : ILocationService
 {
-    public async Task<LocationListResult> GetLocationsAsync(LocationListQuery query, CancellationToken cancellationToken = default)
+    public async Task<LocationListResult> GetLocationsAsync(LocationListQuery query, string? operatorFloor,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
         if (!Validator.TryValidateObject(query, new ValidationContext(query), null, validateAllProperties: true))
@@ -22,8 +24,9 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
             kind = parsedKind;
         }
 
-        var rows = await repository.GetLocationsAsync(query.Floor?.Trim(), kind, cancellationToken);
-        return LocationListResult.Success(rows.Select(row => new LocationResponse
+        var floor = operatorFloor?.Trim() ?? query.Floor?.Trim();
+        var rows = await repository.GetLocationsAsync(floor, kind, cancellationToken);
+        var items = rows.Select(row => new LocationResponse
         {
             Id = row.Id,
             Code = row.Code,
@@ -36,7 +39,12 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
             IsRestrictedArea = row.IsRestrictedArea,
             RestrictedHours = row.RestrictedHours,
             IsActive = row.IsActive
-        }).ToList());
+        }).ToList();
+        return LocationListResult.Success(new PagedResponse<LocationResponse>
+        {
+            Items = items.Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToList(),
+            Page = query.Page, PageSize = query.PageSize, Total = items.Count
+        });
     }
 
     public async Task<CreateLocationResult> CreateLocationAsync(Guid createdByUserId, CreateLocationRequest request,
@@ -45,6 +53,18 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
         ArgumentNullException.ThrowIfNull(request);
         if (createdByUserId == Guid.Empty || !IsValid(request) || !TryParseKind(request.Kind, out var kind))
             return CreateLocationResult.Failure(CreateLocationError.InvalidRequest);
+        var isChargingLocation = IsChargingLocation(kind);
+        if (isChargingLocation && request.ChargingStation is null)
+            return CreateLocationResult.Failure(CreateLocationError.ChargingStationRequired);
+        if (!isChargingLocation && request.ChargingStation is not null)
+            return CreateLocationResult.Failure(CreateLocationError.ChargingStationNotAllowed);
+        if (request.ChargingStation is not null && !IsValid(request.ChargingStation))
+            return CreateLocationResult.Failure(CreateLocationError.InvalidRequest);
+        string? stationType = null;
+        if (request.ChargingStation is not null
+            && !TryGetStationType(kind, request.ChargingStation.StationType, out stationType))
+            return CreateLocationResult.Failure(CreateLocationError.ChargingStationTypeMismatch);
+
         var code = request.Code.Trim();
         if ((await repository.FindByCodeAsync(code, cancellationToken)).Count != 0)
             return CreateLocationResult.Failure(CreateLocationError.DuplicateCode);
@@ -57,7 +77,9 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
 
         var row = await repository.CreateLocationAsync(code, request.Name.Trim(), request.Description?.Trim(), floor.Id,
             floor.Code, floor.Name, kind, request.MapNodeCode.Trim(), request.IsRestrictedArea, request.RestrictedHours?.Trim(),
-            createdByUserId, DateTime.UtcNow, cancellationToken);
+            createdByUserId, DateTime.UtcNow,
+            request.ChargingStation is null ? null : new ChargingStationCreateRow(request.ChargingStation.Name.Trim(), stationType!,
+                request.ChargingStation.Capacity), cancellationToken);
         return CreateLocationResult.Success(ToResponse(row));
     }
 
@@ -73,6 +95,8 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
         var existing = matches[0];
         if (!string.Equals(existing.FloorCode, request.Floor.Trim(), StringComparison.Ordinal))
             return UpdateLocationResult.Failure(UpdateLocationError.FloorChangeNotAllowed);
+        if (existing.Kind != kind && (IsChargingLocation(existing.Kind) || IsChargingLocation(kind)))
+            return UpdateLocationResult.Failure(UpdateLocationError.ChargingStationKindChangeNotAllowed);
         if (!await repository.PublishedMapContainsNodeAsync(existing.FloorId, request.MapNodeCode.Trim(), cancellationToken))
             return UpdateLocationResult.Failure(UpdateLocationError.MapNodeNotFound);
 
@@ -139,6 +163,17 @@ public sealed class LocationService(ILocationRepository repository) : ILocationS
         LocationKind.Corridor => "CORRIDOR",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown location kind.")
     };
+
+    private static bool IsChargingLocation(LocationKind kind) => kind is LocationKind.Charger or LocationKind.CleanStation;
+
+    private static bool TryGetStationType(LocationKind kind, string value, out string? stationType)
+    {
+        stationType = null;
+        var expected = kind == LocationKind.CleanStation ? "CLEAN" : "STANDARD";
+        if (!string.Equals(value.Trim(), expected, StringComparison.OrdinalIgnoreCase)) return false;
+        stationType = expected;
+        return true;
+    }
 
     private static bool IsValid(object request) => Validator.TryValidateObject(request, new ValidationContext(request), null, true);
 

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Floors.DTOs;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
@@ -6,10 +7,13 @@ namespace RobotMissionMS.Business.Features.Floors.Services;
 
 public sealed class FloorService(IFloorRepository repository) : IFloorService
 {
-    public async Task<IReadOnlyList<FloorResponse>> GetFloorsAsync(CancellationToken cancellationToken = default)
+    public async Task<FloorListResult> GetFloorsAsync(FloorListQuery query, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!Validator.TryValidateObject(query, new ValidationContext(query), null, true)) return FloorListResult.Invalid();
         var rows = await repository.GetFloorsAsync(cancellationToken);
-        return rows.Select(ToFloorResponse).ToList();
+        var items = rows.Select(ToFloorResponse).ToList();
+        return FloorListResult.Success(new PagedResponse<FloorResponse> { Items = items.Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToList(), Page = query.Page, PageSize = query.PageSize, Total = items.Count });
     }
 
     public async Task<FloorMapResult> GetPublishedMapAsync(string floorCode, CancellationToken cancellationToken = default)

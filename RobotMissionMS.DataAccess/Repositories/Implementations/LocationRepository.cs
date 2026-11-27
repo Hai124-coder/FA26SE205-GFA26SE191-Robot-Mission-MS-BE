@@ -40,13 +40,25 @@ public sealed class LocationRepository(RobotMissionDbContext db) : ILocationRepo
 
     public async Task<LocationManagementRow> CreateLocationAsync(string code, string name, string? description, Guid floorId,
         string floorCode, string floorName, LocationKind kind, string mapNodeCode, bool isRestrictedArea, string? restrictedHours,
-        Guid userId, DateTime occurredAtUtc, CancellationToken cancellationToken = default)
+        Guid userId, DateTime occurredAtUtc, ChargingStationCreateRow? chargingStation = null,
+        CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var location = new Location { Id = Guid.NewGuid(), Code = code, Name = name, Description = description, ZoneId = floorId,
             Kind = kind, MapNodeCode = mapNodeCode, IsRestrictedArea = isRestrictedArea, RestrictedHours = restrictedHours, IsActive = true };
         db.Locations.Add(location);
+        if (chargingStation is not null)
+        {
+            var station = new ChargingStation { Id = Guid.NewGuid(), LocationId = location.Id, Name = chargingStation.Name,
+                StationType = chargingStation.StationType, Capacity = chargingStation.Capacity, Status = StationStatus.Operational };
+            db.ChargingStations.Add(station);
+            AddAuditLog(userId, occurredAtUtc, "CHARGING_STATION_CREATED", $"ChargingStation:{station.Id:D};Location:{code}");
+        }
         AddAuditLog(userId, occurredAtUtc, "LOCATION_CREATED", $"Location:{code}");
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return new LocationManagementRow(location.Id, location.Code, location.Name, location.Description, floorId, floorCode, floorName,
             location.Kind, location.MapNodeCode, location.IsRestrictedArea, location.RestrictedHours, location.IsActive);
     }
@@ -55,25 +67,29 @@ public sealed class LocationRepository(RobotMissionDbContext db) : ILocationRepo
         string mapNodeCode, bool isRestrictedArea, string? restrictedHours, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var location = await db.Locations.Include(item => item.Zone).SingleAsync(item => item.Id == locationId, cancellationToken);
         location.Name = name; location.Description = description; location.Kind = kind; location.MapNodeCode = mapNodeCode;
         location.IsRestrictedArea = isRestrictedArea; location.RestrictedHours = restrictedHours;
         AddAuditLog(userId, occurredAtUtc, "LOCATION_UPDATED", $"Location:{location.Code}");
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return ToManagementRow(location);
     }
 
     public async Task<LocationManagementRow> UpdateLocationStatusAsync(Guid locationId, bool isActive, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var location = await db.Locations.Include(item => item.Zone).SingleAsync(item => item.Id == locationId, cancellationToken);
         location.IsActive = isActive;
         AddAuditLog(userId, occurredAtUtc, "LOCATION_STATUS_CHANGED", $"Location:{location.Code};Active:{isActive}");
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return ToManagementRow(location);
     }
 
@@ -85,7 +101,7 @@ public sealed class LocationRepository(RobotMissionDbContext db) : ILocationRepo
         var schedules = await db.MissionScheduleStops.AsNoTracking().Where(stop => stop.LocationId == locationId && stop.Schedule.IsActive)
             .OrderBy(stop => stop.Schedule.Name).Select(stop => stop.Schedule.Name).Distinct().ToListAsync(cancellationToken);
         var activeSessions = await db.ChargingSessions.AsNoTracking().CountAsync(session => session.ChargingStation.LocationId == locationId
-            && session.Status == ChargingSessionStatus.Charging, cancellationToken);
+            && (session.Status == ChargingSessionStatus.Queued || session.Status == ChargingSessionStatus.Charging), cancellationToken);
         return new LocationUsageRow(pending, schedules, activeSessions);
     }
 

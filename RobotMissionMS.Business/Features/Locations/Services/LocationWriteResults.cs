@@ -2,8 +2,8 @@ using RobotMissionMS.Business.Features.Locations.DTOs;
 
 namespace RobotMissionMS.Business.Features.Locations.Services;
 
-public enum CreateLocationError { InvalidRequest, DuplicateCode, FloorNotFound, FloorInactive, MapNodeNotFound }
-public enum UpdateLocationError { InvalidRequest, NotFound, AmbiguousCode, FloorChangeNotAllowed, MapNodeNotFound }
+public enum CreateLocationError { InvalidRequest, DuplicateCode, FloorNotFound, FloorInactive, MapNodeNotFound, ChargingStationRequired, ChargingStationNotAllowed, ChargingStationTypeMismatch }
+public enum UpdateLocationError { InvalidRequest, NotFound, AmbiguousCode, FloorChangeNotAllowed, MapNodeNotFound, ChargingStationKindChangeNotAllowed }
 public enum UpdateLocationStatusError { InvalidRequest, NotFound, AmbiguousCode, InUse }
 
 public sealed record LocationUsage(IReadOnlyList<string> PendingMissionCodes, IReadOnlyList<string> ActiveScheduleNames,

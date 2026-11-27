@@ -152,6 +152,11 @@ Không xoá cứng người dùng, vì nhật ký và sự cố còn trỏ tới
 
 Màn SC-03 Tầng & bản đồ, SC-04 Vị trí & điểm dừng; bản đồ còn dùng cho SC-13 Bản đồ trực tiếp. Bản đồ gồm node (vị trí) và đoạn đường (edge) nối các node.
 
+`GET /floors`, `GET /locations`, `GET /charging-stations` và
+`GET /floors/{floorCode}/map-versions` trả `{ "items": [], "page": 1,
+"pageSize": 20, "total": 0 }`; `page` bắt đầu từ 1 và `pageSize` tối đa 100.
+Query phân trang sai trả 400.
+
 
 | Method | Endpoint | Vai trò | Mô tả |
 | --- | --- | --- | --- |
@@ -165,11 +170,77 @@ Màn SC-03 Tầng & bản đồ, SC-04 Vị trí & điểm dừng; bản đồ c
 | PATCH | /floors/{floorCode}/edges/{edgeId} | Admin | Khoá hoặc mở một đoạn đường tạm thời (D3), không cần file mới |
 | POST | /floors/{floorCode}/maintenance | Admin | Bật hoặc tắt bảo trì tầng: ngừng phát chuyến mới, chuyến đang chạy làm nốt (D4) |
 | GET | /locations | Tất cả | Vị trí; lọc floor, kind. Dùng cho ô chọn khoa, điểm lấy |
-| POST | /locations | Admin | Thêm vị trí: mã, tên, tầng, loại, node trên bản đồ |
-| PUT | /locations/{code} | Admin | Sửa vị trí; với trạm sạc có thêm số cổng |
+| POST | /locations | Admin | Thêm vị trí: mã, tên, tầng, loại, node trên bản đồ; vị trí sạc tạo kèm trạm |
+| PUT | /locations/{code} | Admin | Sửa vị trí; không đổi sang/từ loại vị trí sạc |
 | PATCH | /locations/{code}/status | Admin | Ngừng dùng một vị trí; từ chối nếu đang có đơn chờ hoặc lịch dùng nó (trả danh sách chỗ đang dùng) |
 | GET | /charging-stations | Tất cả | Trạm sạc: số cổng, cổng đang dùng, robot đang sạc, robot chờ cổng (SC-18) |
 | PATCH | /charging-stations/{code} | Admin | Sửa số cổng sạc |
+
+### Contract `GET /charging-stations`
+
+Mỗi trạm trả ảnh chụp số cổng và hai danh sách robot active. `chargingRobots`
+gồm các session `CHARGING`; `queuedRobots` gồm các session `QUEUED`. Hai danh
+sách này không chồng lấp: một robot chỉ có tối đa một charging session active.
+
+```json
+{
+  "id": "b6cf8c78-3ba5-49f4-9a2d-93d0b435b6aa",
+  "code": "F2-CHG-01",
+  "name": "Trạm sạc thuốc F2",
+  "floor": "F2",
+  "floorName": "Tầng 2",
+  "stationType": "STANDARD",
+  "status": "ACTIVE",
+  "capacity": 2,
+  "usedPorts": 1,
+  "freePorts": 1,
+  "chargingRobots": [
+    { "id": "...", "robotCode": "MED-01", "battery": 54,
+      "startedAt": "2026-11-27T03:00:00Z" }
+  ],
+  "queuedRobots": [
+    { "id": "...", "robotCode": "MED-02", "battery": 18,
+      "queuedAt": "2026-11-27T03:05:00Z" }
+  ]
+}
+```
+
+- `usedPorts` bằng số session `CHARGING`; `freePorts = max(0, capacity - usedPorts)`.
+  Session `QUEUED` không chiếm cổng và không làm giảm `freePorts`.
+- `chargingRobots` sắp theo `startedAt` tăng dần; `queuedRobots` sắp theo
+  `queuedAt` tăng dần (đầu danh sách là robot được chờ lâu nhất).
+- `battery` là ảnh chụp pin hiện tại của robot khi API được gọi. Không suy diễn
+  tiến độ sạc hoặc thời điểm robot vào/rời cổng khi chưa nhận sự kiện MQTT.
+- `floor` là filter tuỳ chọn cho Supervisor/Admin. Operator luôn nhận dữ liệu
+  thuộc floor trong token, kể cả khi gửi `?floor=` khác.
+
+### Tạo vị trí sạc
+
+`POST /locations` tạo `Location` và `ChargingStation` trong cùng transaction
+khi `kind` là `CHARGER` hoặc `CLEAN_STATION`. Hai loại này bắt buộc có object
+`chargingStation`; các loại vị trí khác không được gửi object này.
+
+```json
+{
+  "code": "F2-CHG-05",
+  "name": "Điểm sạc F2-05",
+  "floor": "F2",
+  "kind": "CHARGER",
+  "mapNodeCode": "F2-CHG-05",
+  "chargingStation": {
+    "name": "Trạm sạc thuốc F2-05",
+    "stationType": "STANDARD",
+    "capacity": 2
+  }
+}
+```
+
+`capacity` là số nguyên tối thiểu 1. `stationType` phải là `STANDARD` với
+`CHARGER` và `CLEAN` với `CLEAN_STATION`. Lỗi nghiệp vụ là
+`CHARGING_STATION_REQUIRED`, `CHARGING_STATION_NOT_ALLOWED` hoặc
+`CHARGING_STATION_TYPE_MISMATCH` (400). `PUT /locations/{code}` không cho đổi
+sang hoặc từ hai loại vị trí sạc (`409 CHARGING_STATION_KIND_CHANGE_NOT_ALLOWED`);
+capacity của station đã tồn tại chỉ đổi qua `PATCH /charging-stations/{code}`.
 
 Nhóm bản đồ (map-versions, edges, maintenance) theo nhóm sự cố D, prototype v8 chưa có màn cho phần này.
 

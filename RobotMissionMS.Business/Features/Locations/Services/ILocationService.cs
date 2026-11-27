@@ -4,7 +4,8 @@ namespace RobotMissionMS.Business.Features.Locations.Services;
 
 public interface ILocationService
 {
-    Task<LocationListResult> GetLocationsAsync(LocationListQuery query, CancellationToken cancellationToken = default);
+    Task<LocationListResult> GetLocationsAsync(LocationListQuery query, string? operatorFloor,
+        CancellationToken cancellationToken = default);
     Task<CreateLocationResult> CreateLocationAsync(Guid createdByUserId, CreateLocationRequest request,
         CancellationToken cancellationToken = default);
     Task<UpdateLocationResult> UpdateLocationAsync(Guid updatedByUserId, string locationCode, UpdateLocationRequest request,

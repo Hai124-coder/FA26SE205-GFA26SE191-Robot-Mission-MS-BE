@@ -1,9 +1,10 @@
 using RobotMissionMS.Business.Features.Maps.DTOs;
+using RobotMissionMS.Business.Common.DTOs;
 
 namespace RobotMissionMS.Business.Features.Maps.Services;
 
 public enum MapImportError { InvalidRequest, FloorNotFound, InvalidMap }
-public enum MapVersionListError { FloorNotFound }
+public enum MapVersionListError { FloorNotFound, InvalidQuery }
 public enum PublishMapError { FloorNotFound, VersionNotFound, VersionNotDraft, LocationsUseRemovedNodes }
 public enum UpdateMapEdgeError { InvalidRequest, FloorNotFound, EdgeNotFound, EdgeNotPublished }
 public enum FloorMaintenanceError { FloorNotFound }
@@ -22,11 +23,11 @@ public sealed class MapImportResult
 
 public sealed class MapVersionListResult
 {
-    private MapVersionListResult(IReadOnlyList<MapVersionResponse>? response, MapVersionListError? error) { Response = response; Error = error; }
-    public IReadOnlyList<MapVersionResponse>? Response { get; }
+    private MapVersionListResult(PagedResponse<MapVersionResponse>? response, MapVersionListError? error) { Response = response; Error = error; }
+    public PagedResponse<MapVersionResponse>? Response { get; }
     public MapVersionListError? Error { get; }
     public bool IsSuccess => Error is null;
-    public static MapVersionListResult Success(IReadOnlyList<MapVersionResponse> response) => new(response, null);
+    public static MapVersionListResult Success(PagedResponse<MapVersionResponse> response) => new(response, null);
     public static MapVersionListResult Failure(MapVersionListError error) => new(null, error);
 }
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using RobotMissionMS.Api.Authorization;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Locations.DTOs;
 using RobotMissionMS.Business.Features.Locations.Services;
 
@@ -14,13 +15,17 @@ namespace RobotMissionMS.Api.Controllers;
 public sealed class LocationsController(ILocationService locationService) : ControllerBase
 {
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<LocationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResponse<LocationResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<IReadOnlyList<LocationResponse>>> GetLocations([FromQuery] LocationListQuery query,
+    public async Task<ActionResult<PagedResponse<LocationResponse>>> GetLocations([FromQuery] LocationListQuery query,
         CancellationToken cancellationToken)
     {
-        var result = await locationService.GetLocationsAsync(query, cancellationToken);
+        var operatorFloor = User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null;
+        if (User.IsInRole("OPERATOR") && string.IsNullOrWhiteSpace(operatorFloor))
+            return Problem(type: "OPERATOR_FLOOR_NOT_CONFIGURED", statusCode: StatusCodes.Status409Conflict);
+
+        var result = await locationService.GetLocationsAsync(query, operatorFloor, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
 
@@ -48,6 +53,9 @@ public sealed class LocationsController(ILocationService locationService) : Cont
             CreateLocationError.FloorNotFound => Problem(type: "FLOORS_NOT_FOUND", title: "The specified floor was not found.", statusCode: 400),
             CreateLocationError.FloorInactive => Problem(type: "FLOORS_INACTIVE", title: "The specified floor is inactive.", statusCode: 409),
             CreateLocationError.MapNodeNotFound => Problem(type: "MAP_NODE_NOT_FOUND", title: "The map node is not in the published floor map.", statusCode: 400),
+            CreateLocationError.ChargingStationRequired => Problem(type: "CHARGING_STATION_REQUIRED", title: "Charging locations require station configuration.", statusCode: 400),
+            CreateLocationError.ChargingStationNotAllowed => Problem(type: "CHARGING_STATION_NOT_ALLOWED", title: "Only charging locations can include station configuration.", statusCode: 400),
+            CreateLocationError.ChargingStationTypeMismatch => Problem(type: "CHARGING_STATION_TYPE_MISMATCH", title: "The station type does not match the location kind.", statusCode: 400),
             _ => throw new InvalidOperationException("Location service returned an invalid create result.")
         };
     }
@@ -67,6 +75,7 @@ public sealed class LocationsController(ILocationService locationService) : Cont
             UpdateLocationError.AmbiguousCode => Problem(type: "LOCATIONS_AMBIGUOUS_CODE", title: "The location code is not unique.", statusCode: 409),
             UpdateLocationError.FloorChangeNotAllowed => Problem(type: "LOCATIONS_FLOOR_CHANGE_NOT_ALLOWED", title: "Moving a location between floors is not supported.", statusCode: 409),
             UpdateLocationError.MapNodeNotFound => Problem(type: "MAP_NODE_NOT_FOUND", title: "The map node is not in the published floor map.", statusCode: 400),
+            UpdateLocationError.ChargingStationKindChangeNotAllowed => Problem(type: "CHARGING_STATION_KIND_CHANGE_NOT_ALLOWED", title: "Changing to or from a charging location is not supported.", statusCode: 409),
             _ => throw new InvalidOperationException("Location service returned an invalid update result.")
         };
     }

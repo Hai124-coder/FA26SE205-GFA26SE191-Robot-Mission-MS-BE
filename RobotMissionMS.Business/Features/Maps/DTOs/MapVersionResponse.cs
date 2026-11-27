@@ -1,5 +1,11 @@
 namespace RobotMissionMS.Business.Features.Maps.DTOs;
 
+public sealed class MapVersionListQuery
+{
+    [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)] public int Page { get; init; } = 1;
+    [System.ComponentModel.DataAnnotations.Range(1, 100)] public int PageSize { get; init; } = 20;
+}
+
 public sealed class MapVersionResponse
 {
     public required Guid Id { get; init; }

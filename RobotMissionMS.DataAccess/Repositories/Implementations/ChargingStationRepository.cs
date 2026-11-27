@@ -8,9 +8,14 @@ namespace RobotMissionMS.DataAccess.Repositories.Implementations;
 
 public sealed class ChargingStationRepository(RobotMissionDbContext db) : IChargingStationRepository
 {
-    public async Task<IReadOnlyList<ChargingStationRow>> GetChargingStationsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ChargingStationRow>> GetChargingStationsAsync(string? floorCode,
+        CancellationToken cancellationToken = default)
     {
-        var stations = await db.ChargingStations.AsNoTracking()
+        var query = db.ChargingStations.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(floorCode))
+            query = query.Where(station => station.Location.Zone.Code == floorCode);
+
+        var stations = await query
             .OrderBy(station => station.Location.Zone.Code).ThenBy(station => station.Location.Code)
             .Select(station => new StationData(station.Id, station.Location.Code, station.Name, station.Location.Zone.Code,
                 station.Location.Zone.Name, station.StationType, station.Status, station.Capacity))
@@ -66,12 +71,22 @@ public sealed class ChargingStationRepository(RobotMissionDbContext db) : ICharg
             .Select(session => new { session.ChargingStationId, Robot = new ChargingRobotRow(session.Robot.Id,
                 session.Robot.RobotCode, session.Robot.Battery, session.StartedAt ?? session.QueuedAt) })
             .ToListAsync(cancellationToken);
+        var queuedRobots = await db.ChargingSessions.AsNoTracking()
+            .Where(session => stationIds.Contains(session.ChargingStationId)
+                && session.Status == ChargingSessionStatus.Queued)
+            .OrderBy(session => session.QueuedAt)
+            .Select(session => new { session.ChargingStationId, Robot = new QueuedRobotRow(session.Robot.Id,
+                session.Robot.RobotCode, session.Robot.Battery, session.QueuedAt) })
+            .ToListAsync(cancellationToken);
 
-        var robotsByStation = chargingRobots.GroupBy(row => row.ChargingStationId)
+        var chargingByStation = chargingRobots.GroupBy(row => row.ChargingStationId)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<ChargingRobotRow>)group.Select(row => row.Robot).ToList());
+        var queuedByStation = queuedRobots.GroupBy(row => row.ChargingStationId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<QueuedRobotRow>)group.Select(row => row.Robot).ToList());
         return stations.Select(station => new ChargingStationRow(station.Id, station.LocationCode, station.Name, station.FloorCode,
             station.FloorName, station.StationType, station.Status, station.Capacity,
-            robotsByStation.GetValueOrDefault(station.Id, Array.Empty<ChargingRobotRow>()))).ToList();
+            chargingByStation.GetValueOrDefault(station.Id, Array.Empty<ChargingRobotRow>()),
+            queuedByStation.GetValueOrDefault(station.Id, Array.Empty<QueuedRobotRow>()))).ToList();
     }
 
     private sealed record StationData(Guid Id, string LocationCode, string Name, string FloorCode, string FloorName,

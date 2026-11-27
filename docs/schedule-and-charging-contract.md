@@ -126,6 +126,14 @@ phút dư thừa. Với session chưa vào cổng, giá trị này là thời gi
 hiện tại; với session tạo theo dữ liệu cũ, migration backfill `queuedAt` bằng
 `startedAt` để thời gian chờ là 0.
 
+`GET /api/v1/charging-stations` trả ảnh chụp station gồm `capacity`,
+`usedPorts`, `freePorts`, `chargingRobots` và `queuedRobots`. `usedPorts` chỉ
+đếm session `CHARGING`; `queuedRobots` không chiếm cổng và được sắp theo
+`queuedAt` tăng dần. Mỗi phần tử `chargingRobots` có `id`, `robotCode`,
+`battery`, `startedAt`; mỗi phần tử `queuedRobots` có `id`, `robotCode`,
+`battery`, `queuedAt`. Contract response đầy đủ nằm ở phần 3 của
+`rmms-v8-backend-api-updated.md`.
+
 `GET /api/v1/charging-sessions` cho mọi người dùng đã xác thực, nhưng Operator
 chỉ xem dữ liệu floor của họ; Supervisor và Admin xem toàn bộ. Filter hỗ trợ
 `robotId`, `station`, `from`, `to`, `page`, `pageSize`; kết quả mặc định mới

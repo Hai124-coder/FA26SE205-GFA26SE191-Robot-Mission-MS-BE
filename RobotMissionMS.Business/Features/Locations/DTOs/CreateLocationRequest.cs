@@ -12,4 +12,12 @@ public sealed class CreateLocationRequest
     public string? Description { get; init; }
     public bool IsRestrictedArea { get; init; }
     [StringLength(50)] public string? RestrictedHours { get; init; }
+    public CreateChargingStationRequest? ChargingStation { get; init; }
+}
+
+public sealed class CreateChargingStationRequest
+{
+    [Required, StringLength(100, MinimumLength = 1)] public string Name { get; init; } = string.Empty;
+    [Required, StringLength(30, MinimumLength = 1)] public string StationType { get; init; } = string.Empty;
+    [Range(1, int.MaxValue)] public int Capacity { get; init; }
 }

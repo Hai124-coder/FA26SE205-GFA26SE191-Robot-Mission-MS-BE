@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using RobotMissionMS.Api.Authorization;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Floors.DTOs;
 using RobotMissionMS.Business.Features.Floors.Services;
 
@@ -14,10 +15,13 @@ namespace RobotMissionMS.Api.Controllers;
 public sealed class FloorsController(IFloorService floorService) : ControllerBase
 {
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<FloorResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResponse<FloorResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<IReadOnlyList<FloorResponse>>> GetFloors(CancellationToken cancellationToken) =>
-        Ok(await floorService.GetFloorsAsync(cancellationToken));
+    public async Task<ActionResult<PagedResponse<FloorResponse>>> GetFloors([FromQuery] FloorListQuery query, CancellationToken cancellationToken)
+    {
+        var result = await floorService.GetFloorsAsync(query, cancellationToken);
+        return result.IsSuccess ? Ok(result.Response) : Problem(type: "FLOORS_INVALID_QUERY", statusCode: 400);
+    }
 
     [HttpGet("{floorCode}/map")]
     [ProducesResponseType(typeof(FloorMapResponse), StatusCodes.Status200OK)]

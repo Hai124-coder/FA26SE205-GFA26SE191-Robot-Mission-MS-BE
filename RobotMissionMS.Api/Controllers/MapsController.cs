@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.Api.Contracts;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Maps.DTOs;
 using RobotMissionMS.Business.Features.Maps.Services;
 
@@ -19,15 +20,16 @@ public sealed class MapsController(IMapService mapService) : ControllerBase
 
     [HttpGet("{floorCode}/map-versions")]
     [Authorize(Policy = AuthPolicies.AdminOnly)]
-    [ProducesResponseType(typeof(IReadOnlyList<MapVersionResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<MapVersionResponse>>> GetVersions(
+    [ProducesResponseType(typeof(PagedResponse<MapVersionResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResponse<MapVersionResponse>>> GetVersions(
         string floorCode,
+        [FromQuery] MapVersionListQuery query,
         CancellationToken cancellationToken)
     {
-        var result = await mapService.GetVersionsAsync(floorCode, cancellationToken);
+        var result = await mapService.GetVersionsAsync(floorCode, query, cancellationToken);
         return result.Error is MapVersionListError.FloorNotFound
             ? NotFound(new ProblemDetails { Title = "Floor not found", Detail = $"Floor '{floorCode}' was not found." })
-            : Ok(result.Response);
+            : result.Error is MapVersionListError.InvalidQuery ? Problem(type: "MAP_VERSIONS_INVALID_QUERY", statusCode: 400) : Ok(result.Response);
     }
 
     [HttpPost("{floorCode}/map-versions")]

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using RobotMissionMS.Api.Authorization;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.ChargingStations.DTOs;
 using RobotMissionMS.Business.Features.ChargingStations.Services;
 
@@ -14,10 +15,19 @@ namespace RobotMissionMS.Api.Controllers;
 public sealed class ChargingStationsController(IChargingStationService chargingStationService) : ControllerBase
 {
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<ChargingStationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResponse<ChargingStationResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<IReadOnlyList<ChargingStationResponse>>> GetChargingStations(
-        CancellationToken cancellationToken) => Ok(await chargingStationService.GetChargingStationsAsync(cancellationToken));
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<PagedResponse<ChargingStationResponse>>> GetChargingStations([FromQuery] ChargingStationListQuery query,
+        CancellationToken cancellationToken)
+    {
+        var operatorFloor = User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null;
+        if (User.IsInRole("OPERATOR") && string.IsNullOrWhiteSpace(operatorFloor))
+            return Problem(type: "OPERATOR_FLOOR_NOT_CONFIGURED", statusCode: StatusCodes.Status409Conflict);
+
+        var result = await chargingStationService.GetChargingStationsAsync(query, operatorFloor, cancellationToken);
+        return result.IsSuccess ? Ok(result.Response) : Problem(type: "CHARGING_STATIONS_INVALID_QUERY", statusCode: 400);
+    }
 
     [HttpPatch("{code}")]
     [Authorize(Policy = AuthPolicies.AdminOnly)]

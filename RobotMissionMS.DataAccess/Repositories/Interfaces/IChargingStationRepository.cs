@@ -4,7 +4,8 @@ namespace RobotMissionMS.DataAccess.Repositories.Interfaces;
 
 public interface IChargingStationRepository
 {
-    Task<IReadOnlyList<ChargingStationRow>> GetChargingStationsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ChargingStationRow>> GetChargingStationsAsync(string? floorCode,
+        CancellationToken cancellationToken = default);
     Task<ChargingStationRow?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ChargingStationLookupRow>> FindByLocationCodeAsync(string locationCode,
         CancellationToken cancellationToken = default);
@@ -13,7 +14,9 @@ public interface IChargingStationRepository
 }
 
 public sealed record ChargingStationRow(Guid Id, string LocationCode, string Name, string FloorCode, string FloorName,
-    string StationType, StationStatus Status, int Capacity, IReadOnlyList<ChargingRobotRow> ChargingRobots);
+    string StationType, StationStatus Status, int Capacity, IReadOnlyList<ChargingRobotRow> ChargingRobots,
+    IReadOnlyList<QueuedRobotRow> QueuedRobots);
 public sealed record ChargingRobotRow(Guid Id, string RobotCode, int Battery, DateTime StartedAt);
+public sealed record QueuedRobotRow(Guid Id, string RobotCode, int Battery, DateTime QueuedAt);
 public sealed record ChargingStationLookupRow(Guid Id);
 public enum ChargingStationCapacityUpdateResult { Success, CapacityBelowActiveSessions }

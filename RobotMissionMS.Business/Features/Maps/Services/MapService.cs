@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using RobotMissionMS.Business.Common.DTOs;
 using RobotMissionMS.Business.Features.Maps.DTOs;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
@@ -36,12 +37,15 @@ public sealed class MapService(IMapRepository repository) : IMapService
             AffectedLocationCodes = affectedLocationCodes });
     }
 
-    public async Task<MapVersionListResult> GetVersionsAsync(string floorCode, CancellationToken cancellationToken = default)
+    public async Task<MapVersionListResult> GetVersionsAsync(string floorCode, MapVersionListQuery query, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!Validator.TryValidateObject(query, new ValidationContext(query), null, true)) return MapVersionListResult.Failure(MapVersionListError.InvalidQuery);
         if (string.IsNullOrWhiteSpace(floorCode)) return MapVersionListResult.Failure(MapVersionListError.FloorNotFound);
         var floor = await repository.FindFloorAsync(floorCode.Trim(), cancellationToken);
         if (floor is null) return MapVersionListResult.Failure(MapVersionListError.FloorNotFound);
-        return MapVersionListResult.Success((await repository.GetVersionsAsync(floor.Id, cancellationToken)).Select(ToResponse).ToList());
+        var items = (await repository.GetVersionsAsync(floor.Id, cancellationToken)).Select(ToResponse).ToList();
+        return MapVersionListResult.Success(new PagedResponse<MapVersionResponse> { Items = items.Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToList(), Page = query.Page, PageSize = query.PageSize, Total = items.Count });
     }
 
     public async Task<PublishMapResult> PublishAsync(Guid userId, string floorCode, Guid versionId,

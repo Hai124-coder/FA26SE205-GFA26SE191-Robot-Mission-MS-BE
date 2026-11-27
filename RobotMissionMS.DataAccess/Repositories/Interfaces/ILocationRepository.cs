@@ -11,7 +11,7 @@ public interface ILocationRepository
     Task<bool> PublishedMapContainsNodeAsync(Guid floorId, string nodeCode, CancellationToken cancellationToken = default);
     Task<LocationManagementRow> CreateLocationAsync(string code, string name, string? description, Guid floorId, string floorCode,
         string floorName, LocationKind kind, string mapNodeCode, bool isRestrictedArea, string? restrictedHours, Guid userId,
-        DateTime occurredAtUtc, CancellationToken cancellationToken = default);
+        DateTime occurredAtUtc, ChargingStationCreateRow? chargingStation = null, CancellationToken cancellationToken = default);
     Task<LocationManagementRow> UpdateLocationAsync(Guid locationId, string name, string? description, LocationKind kind,
         string mapNodeCode, bool isRestrictedArea, string? restrictedHours, Guid userId, DateTime occurredAtUtc,
         CancellationToken cancellationToken = default);
@@ -25,5 +25,6 @@ public sealed record LocationRow(Guid Id, string Code, string Name, string? Desc
 public sealed record FloorLookupRow(Guid Id, string Code, string Name, bool IsActive);
 public sealed record LocationManagementRow(Guid Id, string Code, string Name, string? Description, Guid FloorId, string FloorCode,
     string FloorName, LocationKind Kind, string MapNodeCode, bool IsRestrictedArea, string? RestrictedHours, bool IsActive);
+public sealed record ChargingStationCreateRow(string Name, string StationType, int Capacity);
 public sealed record LocationUsageRow(IReadOnlyList<string> PendingMissionCodes, IReadOnlyList<string> ActiveScheduleNames,
     int ActiveChargingSessions);
