@@ -14,6 +14,11 @@ var typeId = Guid.NewGuid();
 var robotId = Guid.NewGuid();
 
 await using var dataSource = DatabaseDataSource.Create(connectionString);
+if (args.Contains("--lifecycle-only"))
+{
+    await CheckLifecycleAsync(new DbContextOptionsBuilder<RobotMissionDbContext>().UseNpgsql(dataSource).Options, now, suffix);
+    return;
+}
 var services = new ServiceCollection();
 services.AddDbContext<RobotMissionDbContext>(options => options.UseNpgsql(dataSource));
 using var provider = services.BuildServiceProvider();
@@ -72,6 +77,59 @@ finally
     await db.Robots.Where(item => item.Id == robotId).ExecuteDeleteAsync();
     await db.RobotTypes.Where(item => item.Id == typeId).ExecuteDeleteAsync();
     await db.Zones.Where(item => item.Id == zoneId).ExecuteDeleteAsync();
+}
+
+static async Task CheckLifecycleAsync(DbContextOptions<RobotMissionDbContext> options, DateTimeOffset now, string suffix)
+{
+    await using var db = new RobotMissionDbContext(options);
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    using var provider = new ServiceCollection().AddSingleton(db).BuildServiceProvider();
+    var processor = new RobotStateTelemetryProcessor(provider.GetRequiredService<IServiceScopeFactory>(),
+        timeProvider: new FixedTimeProvider(now));
+
+    var zone = new Zone { Id = Guid.NewGuid(), Code = $"TL{suffix}", Name = "Lifecycle test", IsActive = true };
+    var type = new RobotType { Id = Guid.NewGuid(), TypeCode = $"TL{suffix}", Name = "Lifecycle test", ColorHex = "#000000" };
+    var robot = new Robot { Id = Guid.NewGuid(), RobotCode = $"TL-{suffix}", RobotTypeId = type.Id, ZoneId = zone.Id,
+        State = RobotState.Inactive, AwaitingFirstConnection = true, CreatedAt = now.UtcDateTime };
+    db.AddRange(zone, type, robot);
+    await db.SaveChangesAsync();
+
+    var idle = new RobotStateTelemetry(robot.RobotCode, now, 0, 0, 0, 80, 0, "IDLE", null, null, null);
+    await processor.ProcessAsync(idle with { Status = "MOVING" });
+    if (!robot.IsConnected || !robot.AwaitingFirstConnection || robot.State != RobotState.Inactive)
+        throw new InvalidOperationException("First non-idle telemetry must not activate a robot.");
+    await processor.ProcessAsync(idle);
+    if (robot.AwaitingFirstConnection || robot.State != RobotState.Available)
+        throw new InvalidOperationException("First idle telemetry must activate a newly registered robot.");
+
+    var map = new MapVersion { Id = Guid.NewGuid(), ZoneId = zone.Id, VersionNo = 1, SourceJson = "{}",
+        WidthM = 1, HeightM = 1, Status = MapVersionStatus.Published, ImportedAt = now.UtcDateTime };
+    var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"TL{suffix}", ZoneId = zone.Id, RobotId = robot.Id,
+        MapVersionId = map.Id, Status = TripStatus.InProgress, CreatedAt = now.UtcDateTime, StartedAt = now.UtcDateTime };
+    robot.State = RobotState.OnTrip;
+    robot.SuspendRequestedAt = now.UtcDateTime;
+    db.AddRange(map, trip);
+    await db.SaveChangesAsync();
+    await processor.ProcessAsync(idle);
+    if (robot.State != RobotState.OnTrip)
+        throw new InvalidOperationException("Idle telemetry must not suspend a robot with unfinished work.");
+    trip.Status = TripStatus.Aborted;
+    trip.CompletedAt = now.UtcDateTime;
+    await db.SaveChangesAsync();
+    await processor.ProcessAsync(idle);
+    if (robot.State != RobotState.Inactive || robot.SuspendRequestedAt is null)
+        throw new InvalidOperationException("Idle telemetry must finalize pending suspension after an aborted trip.");
+
+    robot.SuspendRequestedAt = null;
+    robot.DecommissionedAt = now.UtcDateTime;
+    robot.IsConnected = false;
+    await db.SaveChangesAsync();
+    await processor.ProcessAsync(idle);
+    if (!robot.IsConnected || robot.State != RobotState.Inactive || robot.DecommissionedAt is null)
+        throw new InvalidOperationException("Reconnection must not activate a decommissioned robot.");
+
+    await transaction.RollbackAsync();
+    Console.WriteLine("telemetry-lifecycle=verified activation=idle aborted-trip=suspended decommissioned=inactive rollback=complete");
 }
 
 sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider

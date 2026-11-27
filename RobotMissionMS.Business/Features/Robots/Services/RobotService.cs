@@ -341,6 +341,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         {
             ResumeRobotRepositoryError.NotFound     => ResumeRobotResult.Failure(ResumeRobotError.NotFound),
             ResumeRobotRepositoryError.NotSuspended => ResumeRobotResult.Failure(ResumeRobotError.NotSuspended),
+            ResumeRobotRepositoryError.Offline => ResumeRobotResult.Failure(ResumeRobotError.Offline),
             _ => throw new InvalidOperationException("Unexpected resume robot repository error.")
         };
     }
@@ -370,6 +371,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
             MaintenanceRobotRepositoryError.NotFound            => MaintenanceRobotResult.Failure(MaintenanceRobotError.NotFound),
             MaintenanceRobotRepositoryError.OnActiveTrip        => MaintenanceRobotResult.Failure(MaintenanceRobotError.OnActiveTrip),
             MaintenanceRobotRepositoryError.AlreadyInMaintenance => MaintenanceRobotResult.Failure(MaintenanceRobotError.AlreadyInMaintenance),
+            MaintenanceRobotRepositoryError.Inactive => MaintenanceRobotResult.Failure(MaintenanceRobotError.Inactive),
             _ => throw new InvalidOperationException("Unexpected maintenance robot repository error.")
         };
     }

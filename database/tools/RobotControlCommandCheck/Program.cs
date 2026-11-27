@@ -1,11 +1,14 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using RobotMissionMS.Business.Features.ChargingSessions.Services;
 using RobotMissionMS.Business.Features.Robots.DTOs;
 using RobotMissionMS.Business.Features.Robots.Services;
+using RobotMissionMS.Business.Features.Trips.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
 using RobotMissionMS.DataAccess.Repositories.Implementations;
+using RobotMissionMS.DataAccess.Repositories.Interfaces;
 
 var connectionString = Environment.GetEnvironmentVariable("SECTION9_CONNECTION")
     ?? throw new InvalidOperationException("SECTION9_CONNECTION is required.");
@@ -118,6 +121,57 @@ var missing = await robots.GetRobotHistoryAsync(Guid.NewGuid(), new RobotHistory
 if (inverted.Error != RobotHistoryError.InvalidDateRange || missing.Error != RobotHistoryError.NotFound)
     throw new InvalidOperationException("History did not distinguish an inverted window from a missing robot.");
 
+var robotRepository = new RobotRepository(db);
+onlineRobot.State = RobotState.OnTrip;
+offlineRobot.State = RobotState.Error;
+await db.SaveChangesAsync();
+
+var refusedDelete = await robotRepository.DeleteRobotAsync(onlineRobot.Id, actor.Id);
+if (refusedDelete.Error != DeleteRobotRepositoryError.OnActiveTrip
+    || (await db.Robots.AsNoTracking().SingleAsync(robot => robot.Id == onlineRobot.Id)).State != RobotState.OnTrip)
+    throw new InvalidOperationException("An ON_TRIP robot must not be decommissioned, even without an active trip row.");
+
+var recovered = await robotRepository.BackToServiceAsync(offlineRobot.Id, actor.Id);
+if (!recovered.IsSuccess
+    || (await db.Robots.AsNoTracking().SingleAsync(robot => robot.Id == offlineRobot.Id)).State != RobotState.Available)
+    throw new InvalidOperationException("Back-to-service must allow a robot in ERROR to become AVAILABLE.");
+
+var charging = new ChargingSessionService(db);
+var suspendedWhileQueued = await robotRepository.SuspendRobotAsync(onlineRobot.Id, actor.Id);
+if (!suspendedWhileQueued.IsSuccess || onlineRobot.State != RobotState.OnTrip || onlineRobot.SuspendRequestedAt is null)
+    throw new InvalidOperationException("Suspension must wait while the charging session is queued.");
+if (!(await charging.StartAsync(queued.Id, at.AddMinutes(1))).IsSuccess
+    || !(await charging.CompleteAsync(queued.Id, 100, at.AddMinutes(2))).IsSuccess
+    || onlineRobot.State != RobotState.Inactive)
+    throw new InvalidOperationException("Finishing a charging session must honor the pending suspension.");
+if (!(await robotRepository.ResumeRobotAsync(onlineRobot.Id, actor.Id)).IsSuccess
+    || onlineRobot.State != RobotState.Available || onlineRobot.SuspendRequestedAt is not null)
+    throw new InvalidOperationException("A connected, suspended robot must be able to resume.");
+
+var queuedAgain = await charging.QueueAsync(onlineRobot.Id, station.Id, actor.Id, at.AddMinutes(3));
+if (!queuedAgain.IsSuccess || !(await robotRepository.SuspendRobotAsync(onlineRobot.Id, actor.Id)).IsSuccess
+    || !(await charging.InterruptAsync(queuedAgain.Response!.Id, 100, at.AddMinutes(4))).IsSuccess
+    || onlineRobot.State != RobotState.Inactive)
+    throw new InvalidOperationException("Interrupting a queued charging session must honor the pending suspension.");
+
+var running = new Trip { Id = Guid.NewGuid(), TripCode = $"RUN{suffix}", ZoneId = zone.Id, RobotId = offlineRobot.Id,
+    MapVersionId = map.Id, Status = TripStatus.InProgress, CreatedAt = at, StartedAt = at };
+offlineRobot.State = RobotState.OnTrip;
+db.Trips.Add(running);
+await db.SaveChangesAsync();
+if (!(await robotRepository.SuspendRobotAsync(offlineRobot.Id, actor.Id)).IsSuccess || offlineRobot.State != RobotState.OnTrip)
+    throw new InvalidOperationException("Suspension must leave the current trip running.");
+var completed = await new TripExecutionService(db).ApplyAsync(
+    new TripExecutionEvent(running.Id, offlineRobot.Id, TripExecutionEventType.Completed, at.AddMinutes(1)));
+if (!completed.IsSuccess || offlineRobot.State != RobotState.Inactive
+    || (await robotRepository.ResumeRobotAsync(offlineRobot.Id, actor.Id)).Error != ResumeRobotRepositoryError.Offline)
+    throw new InvalidOperationException("Trip completion must suspend the robot, and an offline robot cannot resume.");
+if (!(await robotRepository.DeleteRobotAsync(offlineRobot.Id, actor.Id)).IsSuccess
+    || offlineRobot.DecommissionedAt is null || offlineRobot.SuspendRequestedAt is not null
+    || (await robotRepository.ResumeRobotAsync(offlineRobot.Id, actor.Id)).IsSuccess)
+    throw new InvalidOperationException("A decommissioned robot must remain inactive.");
+
 await transaction.RollbackAsync();
-Console.WriteLine("robot-control-command=verified stop=1 resume=1 rejected=invalid,floor,offline rollback=planned");
+Console.WriteLine("robot-control-command=verified stop=1 resume=1 rejected=invalid,floor,offline rollback=complete");
 Console.WriteLine("robot-list-history=verified scope=override history=trip,alert,queued bounds=inclusive rollback=complete");
+Console.WriteLine("robot-state=verified back-to-service=error suspend=trip,charging,queue-interruption resume=online-only decommission=permanent");

@@ -35,7 +35,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
     {
         var ownsTransaction = db.Database.CurrentTransaction is null;
         await using var transaction = ownsTransaction ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
-        var robot = await db.Robots.SingleOrDefaultAsync(x => x.Id == robotId, cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
         if (robot is null) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotFound);
         var station = await db.ChargingStations.Include(x => x.Location).ThenInclude(x => x.Zone).SingleOrDefaultAsync(x => x.Id == stationId, cancellationToken);
         if (station is null) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationNotFound);
@@ -43,7 +43,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         if (await db.ChargingSessions.AnyAsync(x => x.RobotId == robotId && (x.Status == ChargingSessionStatus.Queued || x.Status == ChargingSessionStatus.Charging), cancellationToken))
             return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.ActiveSessionExists);
         if (station.Status != StationStatus.Operational) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationUnavailable);
-        if (robot.State != RobotState.Available) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotAvailable);
+        if (!robot.IsAvailableForWork()) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotAvailable);
 
         var session = new ChargingSession { Id = Guid.NewGuid(), RobotId = robotId, ChargingStationId = stationId, QueuedAt = now, Status = ChargingSessionStatus.Queued };
         robot.State = RobotState.OnTrip;
@@ -69,9 +69,12 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
 
     public async Task<ChargingSessionCommandResult> StartAsync(Guid sessionId, DateTime now, CancellationToken cancellationToken = default)
     {
-        var session = await db.ChargingSessions.Include(x => x.Robot).Include(x => x.ChargingStation).ThenInclude(x => x.Location).ThenInclude(x => x.Zone).SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var session = await LoadSessionForUpdateAsync(sessionId, cancellationToken);
         if (session is null) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.SessionNotFound);
         if (session.Status != ChargingSessionStatus.Queued) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.SessionNotQueued);
+        if (session.Robot.DecommissionedAt is not null || session.Robot.AwaitingFirstConnection)
+            return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.RobotNotAvailable);
         if (session.ChargingStation.Status != StationStatus.Operational) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationUnavailable);
         var active = await db.ChargingSessions.CountAsync(x => x.ChargingStationId == session.ChargingStationId && x.Status == ChargingSessionStatus.Charging, cancellationToken);
         if (active >= session.ChargingStation.Capacity) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.StationAtCapacity);
@@ -82,6 +85,7 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
         session.Robot.State = RobotState.Charging;
         db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = "CHARGING_SESSION_STARTED", TargetObject = $"ChargingSession:{session.Id:D}" });
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
     }
 
@@ -91,18 +95,33 @@ public sealed class ChargingSessionService(RobotMissionDbContext db) : ICharging
     private async Task<ChargingSessionCommandResult> FinishAsync(Guid sessionId, int batteryAtEnd, ChargingSessionStatus finalStatus, DateTime now, CancellationToken cancellationToken)
     {
         if (batteryAtEnd is < 0 or > 100) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.InvalidBattery);
-        var session = await db.ChargingSessions.Include(x => x.Robot).Include(x => x.ChargingStation).ThenInclude(x => x.Location).ThenInclude(x => x.Zone).SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var session = await LoadSessionForUpdateAsync(sessionId, cancellationToken);
         if (session is null) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.SessionNotFound);
-        if (session.Status != ChargingSessionStatus.Charging) return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.SessionNotCharging);
+        if (session.Status != ChargingSessionStatus.Charging
+            && !(session.Status == ChargingSessionStatus.Queued && finalStatus == ChargingSessionStatus.Interrupted))
+            return ChargingSessionCommandResult.Failure(ChargingSessionCommandError.SessionNotCharging);
 
         session.Status = finalStatus;
         session.EndedAt = now;
         session.BatteryAtEnd = batteryAtEnd;
         session.Robot.Battery = batteryAtEnd;
-        session.Robot.State = RobotState.Available;
+        await db.SetRobotStateAfterWorkAsync(session.Robot, cancellationToken, finishingChargingSessionId: session.Id);
         db.ActivityLogs.Add(new ActivityLog { Timestamp = now, Action = finalStatus == ChargingSessionStatus.Completed ? "CHARGING_SESSION_COMPLETED" : "CHARGING_SESSION_INTERRUPTED", TargetObject = $"ChargingSession:{session.Id:D}" });
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return ChargingSessionCommandResult.Success(ToResponse(session, now));
+    }
+
+    private async Task<ChargingSession?> LoadSessionForUpdateAsync(Guid sessionId, CancellationToken ct)
+    {
+        var robotId = await db.ChargingSessions.AsNoTracking().Where(session => session.Id == sessionId)
+            .Select(session => (Guid?)session.RobotId).SingleOrDefaultAsync(ct);
+        if (robotId is not { } id || await db.LockRobotAsync(id, ct) is null) return null;
+
+        return await db.ChargingSessions.Include(session => session.Robot)
+            .Include(session => session.ChargingStation).ThenInclude(station => station.Location).ThenInclude(location => location.Zone)
+            .SingleOrDefaultAsync(session => session.Id == sessionId, ct);
     }
 
     private static ChargingSessionResponse ToResponse(ChargingSession session, DateTime now)

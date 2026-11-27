@@ -26,9 +26,14 @@ public sealed class ScheduledRouteDispatchService(RobotMissionDbContext db, IMis
         if (snapshot?.Stops is not { Count: > 0 }) return ScheduledRouteDispatchResult.InvalidSnapshot;
 
         var requiredType = run.Schedule.MissionType.Code == "WASTE_COLLECTION" ? "WASTE_CART" : "CLEAN_BOT";
-        var robot = await db.Robots.SingleOrDefaultAsync(x => x.ZoneId == run.Schedule.ZoneId && x.IsConnected
-            && x.State == RobotState.Available && x.Battery >= 20 && x.RobotType.TypeCode == requiredType, cancellationToken);
-        if (robot is null) return ScheduledRouteDispatchResult.NoEligibleRobot;
+        var candidateId = await db.Robots.AsNoTracking().Where(x => x.ZoneId == run.Schedule.ZoneId && x.IsConnected
+            && x.State == RobotState.Available && x.Battery >= 20 && x.RobotType.TypeCode == requiredType
+            && !x.AwaitingFirstConnection && x.SuspendRequestedAt == null && x.DecommissionedAt == null)
+            .OrderBy(x => x.RobotCode).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken);
+        if (candidateId is not { } robotId) return ScheduledRouteDispatchResult.NoEligibleRobot;
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
+        if (robot is null || !robot.IsAvailableForWork() || !robot.IsConnected || robot.Battery < 20)
+            return ScheduledRouteDispatchResult.NoEligibleRobot;
         var map = await db.MapVersions.SingleOrDefaultAsync(x => x.ZoneId == run.Schedule.ZoneId && x.Status == MapVersionStatus.Published, cancellationToken);
         if (map is null) return ScheduledRouteDispatchResult.MapNotPublished;
         var codes = snapshot.Stops.Select(x => x.Code).ToList();

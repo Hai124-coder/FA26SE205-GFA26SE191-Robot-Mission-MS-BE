@@ -33,6 +33,12 @@ public partial class Robot
 
     public DateTime CreatedAt { get; set; }
 
+    public bool AwaitingFirstConnection { get; set; }
+
+    public DateTime? SuspendRequestedAt { get; set; }
+
+    public DateTime? DecommissionedAt { get; set; }
+
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 
     public virtual ICollection<ChargingSession> ChargingSessions { get; set; } = new List<ChargingSession>();

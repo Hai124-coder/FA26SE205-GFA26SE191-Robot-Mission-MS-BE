@@ -14,11 +14,13 @@ public sealed class TripExecutionService(RobotMissionDbContext db, ITripRealtime
     {
         if (input.TripId == Guid.Empty || input.RobotId == Guid.Empty || input.OccurredAt == default) return TripExecutionResult.Failure(TripExecutionError.InvalidEvent);
         await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken) : null;
+        await db.LockRobotAsync(input.RobotId, cancellationToken);
         var trip = await db.Trips.FromSqlInterpolated($"SELECT * FROM public.\"Trips\" WHERE \"Id\" = {input.TripId} FOR UPDATE")
             .Include(value => value.Zone).Include(value => value.Robot).Include(value => value.TripStops).Include(value => value.Missions).SingleOrDefaultAsync(cancellationToken);
         if (trip is null) return TripExecutionResult.Failure(TripExecutionError.TripNotFound);
         if (trip.RobotId != input.RobotId) return TripExecutionResult.Failure(TripExecutionError.RobotMismatch);
         var at = input.OccurredAt.UtcDateTime;
+        var previousTripStatus = trip.Status;
         var result = input.Type switch
         {
             TripExecutionEventType.Started => Start(trip, at),
@@ -30,6 +32,8 @@ public sealed class TripExecutionService(RobotMissionDbContext db, ITripRealtime
             _ => TripExecutionResult.Failure(TripExecutionError.InvalidEvent)
         };
         if (!result.IsSuccess) return result;
+        if (previousTripStatus != TripStatus.Completed && trip.Status == TripStatus.Completed)
+            await db.SetRobotStateAfterWorkAsync(trip.Robot, cancellationToken, finishingTripId: trip.Id);
         var stateChanged = db.ChangeTracker.HasChanges();
         var missionUpdates = db.ChangeTracker.Entries<Mission>()
             .Where(entry => entry.Property(value => value.Status).IsModified)
@@ -110,7 +114,7 @@ public sealed class TripExecutionService(RobotMissionDbContext db, ITripRealtime
         if (trip.Status != TripStatus.InProgress) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
         if (trip.Missions.Any(value => value.Status != MissionStatus.Completed)) return TripExecutionResult.Failure(TripExecutionError.MissionNotCompleted);
         if (trip.TripStops.Any(value => value.Status != TripStopStatus.Done)) return TripExecutionResult.Failure(TripExecutionError.InvalidTransition);
-        trip.Status = TripStatus.Completed; trip.CompletedAt ??= at; trip.Robot.State = RobotState.Available;
+        trip.Status = TripStatus.Completed; trip.CompletedAt ??= at;
         return TripExecutionResult.Success();
     }
 

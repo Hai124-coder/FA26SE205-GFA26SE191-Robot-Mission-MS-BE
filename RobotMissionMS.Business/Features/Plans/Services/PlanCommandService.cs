@@ -39,7 +39,8 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
             .Where(mission => mission.ZoneId == zone.Id && (mission.Status == MissionStatus.Pending || mission.Status == MissionStatus.Rescheduled))
             .ToListAsync(cancellationToken);
         var robots = await db.Robots.AsNoTracking().Include(robot => robot.RobotType)
-            .Where(robot => robot.ZoneId == zone.Id && robot.State == RobotState.Available && robot.IsConnected)
+            .Where(robot => robot.ZoneId == zone.Id && robot.State == RobotState.Available && robot.IsConnected
+                && !robot.AwaitingFirstConnection && robot.SuspendRequestedAt == null && robot.DecommissionedAt == null)
             .OrderBy(robot => robot.RobotCode).ToListAsync(cancellationToken);
 
         var plan = new DispatchPlan { Id = Guid.NewGuid(), ZoneId = zone.Id, Status = DispatchPlanStatus.Draft, Source = DispatchPlanSource.Fallback,
@@ -89,7 +90,7 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         {
             var robot = await db.Robots.Include(value => value.RobotType).SingleOrDefaultAsync(value => value.Id == robotId, cancellationToken);
             if (robot is null || robot.ZoneId != plan.ZoneId) return PlanCommandResult.Failure(PlanCommandError.FloorForbidden);
-            if (robot.State != RobotState.Available || !robot.IsConnected) return PlanCommandResult.Failure(PlanCommandError.RobotUnavailable);
+            if (!robot.IsAvailableForWork() || !robot.IsConnected) return PlanCommandResult.Failure(PlanCommandError.RobotUnavailable);
             if (robot.RobotTypeId != task.Mission.MissionType.RobotTypeId) return PlanCommandResult.Failure(PlanCommandError.WrongRobotType);
             if (task.Mission.FromLocationId is null || task.Mission.ToLocationId is null) return PlanCommandResult.Failure(PlanCommandError.InvalidRequest);
             var target = plan.Trips.SingleOrDefault(value => value.RobotId == robotId);
@@ -167,7 +168,7 @@ public sealed class PlanCommandService(RobotMissionDbContext db, TimeProvider? t
         foreach (var planTrip in assignments.Select(task => task.PlanTrip!).DistinctBy(trip => trip.Id))
         {
             var robot = await db.Robots.FromSqlInterpolated($"SELECT * FROM public.\"Robots\" WHERE \"Id\" = {planTrip.RobotId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
-            if (robot is null || robot.ZoneId != plan.ZoneId || robot.State != RobotState.Available || !robot.IsConnected || robot.Battery < 20) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
+            if (robot is null || robot.ZoneId != plan.ZoneId || !robot.IsAvailableForWork() || !robot.IsConnected || robot.Battery < 20) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
             var tasks = assignments.Where(task => task.PlanTripId == planTrip.Id).ToList();
             if (tasks.Any(task => task.Mission.Status is not MissionStatus.Pending and not MissionStatus.Rescheduled || task.Mission.TripId is not null)) return PlanCommandResult.Failure(PlanCommandError.PlanStale);
             var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"TRP-{Guid.NewGuid():N}"[..36].ToUpperInvariant(), ZoneId = plan.ZoneId, RobotId = robot.Id, MapVersionId = planTrip.MapVersionId, DispatchedByUserId = userId, CreatedAt = now, DispatchedAt = now, Status = TripStatus.Dispatched };

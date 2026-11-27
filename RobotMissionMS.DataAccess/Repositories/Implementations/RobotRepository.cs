@@ -330,17 +330,22 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var robot = await db.Robots.SingleOrDefaultAsync(r => r.Id == robotId, cancellationToken);
+        await using var transaction = await BeginLifecycleTransactionAsync(cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
 
         if (robot is null)
             return SuspendRobotRepositoryResult.Failure(SuspendRobotRepositoryError.NotFound);
 
-        // Already suspended (MAINTENANCE) or decommissioned (INACTIVE)
-        if (robot.State == RobotState.Maintenance || robot.State == RobotState.Inactive)
+        if (robot.SuspendRequestedAt is not null || robot.DecommissionedAt is not null
+            || robot.State is RobotState.Inactive or RobotState.Maintenance)
             return SuspendRobotRepositoryResult.Failure(SuspendRobotRepositoryError.AlreadySuspended);
 
-        // Set MAINTENANCE — robot finishes current trip then accepts no new ones
-        robot.State = RobotState.Maintenance; AddActivity(actorUserId, "ROBOT_SUSPENDED", robotId); await db.SaveChangesAsync(cancellationToken);
+        robot.SuspendRequestedAt = DateTime.UtcNow;
+        if (!await db.HasRobotWorkAsync(robotId, cancellationToken))
+            robot.State = RobotState.Inactive;
+        AddActivity(actorUserId, "ROBOT_SUSPENDED", robotId);
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return SuspendRobotRepositoryResult.Success();
     }
@@ -349,15 +354,19 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var robot = await db.Robots.SingleOrDefaultAsync(r => r.Id == robotId, cancellationToken);
+        await using var transaction = await BeginLifecycleTransactionAsync(cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
 
         if (robot is null)
             return BackToServiceRepositoryResult.Failure(BackToServiceRepositoryError.NotFound);
 
-        if (robot.State != RobotState.Maintenance)
+        if (robot.State is not (RobotState.Maintenance or RobotState.Error) || robot.SuspendRequestedAt is not null
+            || robot.DecommissionedAt is not null || robot.AwaitingFirstConnection
+            || await db.HasRobotWorkAsync(robotId, cancellationToken))
             return BackToServiceRepositoryResult.Failure(BackToServiceRepositoryError.NotInMaintenance);
 
         robot.State = RobotState.Available; AddActivity(actorUserId, "ROBOT_BACK_IN_SERVICE", robotId); await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return BackToServiceRepositoryResult.Success();
     }
@@ -366,7 +375,8 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var robot = await db.Robots.SingleOrDefaultAsync(r => r.Id == robotId, cancellationToken);
+        await using var transaction = await BeginLifecycleTransactionAsync(cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
 
         if (robot is null)
             return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.NotFound);
@@ -374,14 +384,14 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         if (robot.State == RobotState.Maintenance)
             return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.AlreadyInMaintenance);
 
-        var activeTripStatuses = new[] { TripStatus.Dispatched, TripStatus.InProgress };
-        var onActiveTrip = await db.Trips.AsNoTracking()
-            .AnyAsync(t => t.RobotId == robotId && activeTripStatuses.Contains(t.Status),
-                cancellationToken);
-        if (onActiveTrip)
+        if (robot.State is RobotState.OnTrip or RobotState.Charging || await db.HasRobotWorkAsync(robotId, cancellationToken))
             return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.OnActiveTrip);
+        if (robot.State == RobotState.Inactive || robot.SuspendRequestedAt is not null
+            || robot.DecommissionedAt is not null || robot.AwaitingFirstConnection)
+            return MaintenanceRobotRepositoryResult.Failure(MaintenanceRobotRepositoryError.Inactive);
 
         robot.State = RobotState.Maintenance; AddActivity(actorUserId, "ROBOT_MAINTENANCE_ENTERED", robotId); await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return MaintenanceRobotRepositoryResult.Success();
     }
@@ -395,7 +405,7 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         if (robot is null)
             return ChargeRobotRepositoryResult.Failure(ChargeRobotRepositoryError.NotFound);
 
-        if (robot.State != RobotState.Available)
+        if (!robot.IsAvailableForWork())
             return ChargeRobotRepositoryResult.Failure(ChargeRobotRepositoryError.NotAvailable);
 
         robot.State = RobotState.Charging; AddActivity(actorUserId, "ROBOT_CHARGE_REQUESTED", robotId); await db.SaveChangesAsync(cancellationToken);
@@ -407,16 +417,22 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var robot = await db.Robots.SingleOrDefaultAsync(r => r.Id == robotId, cancellationToken);
+        await using var transaction = await BeginLifecycleTransactionAsync(cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
 
         if (robot is null)
             return ResumeRobotRepositoryResult.Failure(ResumeRobotRepositoryError.NotFound);
 
-        // Only resume if currently suspended (MAINTENANCE)
-        if (robot.State != RobotState.Maintenance)
+        if (robot.State != RobotState.Inactive || robot.SuspendRequestedAt is null
+            || robot.DecommissionedAt is not null || robot.AwaitingFirstConnection
+            || await db.HasRobotWorkAsync(robotId, cancellationToken))
             return ResumeRobotRepositoryResult.Failure(ResumeRobotRepositoryError.NotSuspended);
+        if (!robot.IsConnected)
+            return ResumeRobotRepositoryResult.Failure(ResumeRobotRepositoryError.Offline);
 
+        robot.SuspendRequestedAt = null;
         robot.State = RobotState.Available; AddActivity(actorUserId, "ROBOT_RESUMED", robotId); await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return ResumeRobotRepositoryResult.Success();
     }
@@ -425,21 +441,27 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
         Guid robotId, Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var robot = await db.Robots.SingleOrDefaultAsync(r => r.Id == robotId, cancellationToken);
+        await using var transaction = await BeginLifecycleTransactionAsync(cancellationToken);
+        var robot = await db.LockRobotAsync(robotId, cancellationToken);
         if (robot is null)
             return DeleteRobotRepositoryResult.Failure(DeleteRobotRepositoryError.NotFound);
+        if (robot.DecommissionedAt is not null)
+            return DeleteRobotRepositoryResult.Success();
 
-        var activeTripStatuses = new[] { TripStatus.Dispatched, TripStatus.InProgress };
-        var onActiveTrip = await db.Trips.AsNoTracking()
-            .AnyAsync(t => t.RobotId == robotId && activeTripStatuses.Contains(t.Status),
-                cancellationToken);
-        if (onActiveTrip)
+        if (robot.State is RobotState.OnTrip or RobotState.Charging || await db.HasRobotWorkAsync(robotId, cancellationToken))
             return DeleteRobotRepositoryResult.Failure(DeleteRobotRepositoryError.OnActiveTrip);
 
+        robot.DecommissionedAt = DateTime.UtcNow;
+        robot.SuspendRequestedAt = null;
+        robot.AwaitingFirstConnection = false;
         robot.State = RobotState.Inactive; AddActivity(actorUserId, "ROBOT_DECOMMISSIONED", robotId); await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return DeleteRobotRepositoryResult.Success();
     }
+
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginLifecycleTransactionAsync(CancellationToken ct) =>
+        db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
 
     public async Task<CreateRobotRepositoryResult> CreateRobotAsync(
         string  robotCode,
@@ -463,6 +485,7 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             ZoneId               = zoneId,
             HomeChargingStationId = homeChargingStationId,
             State                = RobotState.Inactive,
+            AwaitingFirstConnection = true,
             IsConnected          = false,
             Battery              = 100,
             CreatedAt            = DateTime.UtcNow,

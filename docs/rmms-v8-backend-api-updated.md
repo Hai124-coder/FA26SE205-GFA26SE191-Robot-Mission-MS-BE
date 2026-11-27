@@ -266,6 +266,28 @@ Màn SC-05 Robot (Admin), SC-14 Chi tiết robot, SC-13 Bản đồ trực tiế
 | POST | /robots/{id}/maintenance | Operator | Đưa robot vào MAINTENANCE |
 | POST | /robots/{id}/back-to-service | Operator | Bảo trì xong: MAINTENANCE hoặc ERROR → AVAILABLE |
 
+#### Vòng đời robot (migration 015)
+
+Schema hiện tại dùng chung `INACTIVE` cho robot mới, robot tạm ngưng và robot
+đã ngừng hoạt động. Migration thêm ba cột vào `Robots` và giữ nguyên
+enum `RobotState`.
+
+- `AwaitingFirstConnection` đánh dấu robot mới. Chỉ telemetry hợp lệ báo
+  `IDLE` mới đưa robot chờ kết nối sang `AVAILABLE`, với điều kiện robot
+  không có yêu cầu tạm ngưng và chưa ngừng hoạt động.
+- `SuspendRequestedAt` lưu yêu cầu tạm ngưng. Khi còn chuyến hoặc phiên sạc
+  active, giữ trạng thái hiện tại cho đến khi công việc kết thúc hoặc bị hủy.
+  Sau đó robot chuyển sang `INACTIVE` và giữ mốc này cho đến khi `resume`.
+  `resume` chỉ dành cho robot đã tạm ngưng, đã kết nối và chưa ngừng hoạt động.
+  Với chuyến được ghi `ABORTED` ngoài luồng hoàn tất chuyến, telemetry `IDLE`
+  kế tiếp sẽ áp dụng yêu cầu tạm ngưng nếu robot đã hết việc.
+- `DecommissionedAt` đánh dấu robot đã ngừng hoạt động. Robot vẫn có lịch sử
+  và telemetry có thể cập nhật kết nối, nhưng không tự trở lại `AVAILABLE`.
+
+Migration giữ nguyên trạng thái hiện có. Các dòng `INACTIVE` và
+`MAINTENANCE` cũ cần đối chiếu nhật ký trước khi gán lại vòng đời. Thiếu bằng
+chứng thì giữ nguyên trạng thái và không tự kích hoạt robot.
+
 Các lệnh trên được backend chuyển thành tin MQTT rmms/v1/{robotId}/command gửi xuống robot.
 
 `GET /robots` tự giới hạn Operator theo tầng được gán. Bộ lọc `floor` của

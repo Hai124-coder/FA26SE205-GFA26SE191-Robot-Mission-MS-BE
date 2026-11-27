@@ -4,6 +4,7 @@ public enum ResumeRobotError
 {
     NotFound,
     NotSuspended,
+    Offline,
 }
 
 public sealed class ResumeRobotResult

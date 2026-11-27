@@ -69,8 +69,7 @@ public interface IRobotRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Suspends a robot: sets State = MAINTENANCE so it finishes current trip
-    /// then stops accepting new ones. (SUSPENDED not in current DB schema.)
+    /// Records a suspension request and lets existing work finish before entering INACTIVE.
     /// </summary>
     Task<SuspendRobotRepositoryResult> SuspendRobotAsync(
         Guid robotId, Guid actorUserId,
@@ -78,7 +77,7 @@ public interface IRobotRepository
 
     /// <summary>
     /// Resumes a suspended robot: sets State back to AVAILABLE.
-    /// Only valid when State = MAINTENANCE (suspended).
+    /// Requires an INACTIVE robot with a suspension marker and a live connection.
     /// </summary>
     Task<ResumeRobotRepositoryResult> ResumeRobotAsync(
         Guid robotId, Guid actorUserId,
@@ -271,7 +270,7 @@ public sealed class SuspendRobotRepositoryResult
         new() { IsSuccess = false, Error = e };
 }
 
-public enum ResumeRobotRepositoryError { NotFound, NotSuspended }
+public enum ResumeRobotRepositoryError { NotFound, NotSuspended, Offline }
 
 public sealed class ResumeRobotRepositoryResult
 {
@@ -293,7 +292,7 @@ public sealed class ChargeRobotRepositoryResult
         new() { IsSuccess = false, Error = e };
 }
 
-public enum MaintenanceRobotRepositoryError { NotFound, OnActiveTrip, AlreadyInMaintenance }
+public enum MaintenanceRobotRepositoryError { NotFound, OnActiveTrip, AlreadyInMaintenance, Inactive }
 
 public sealed class MaintenanceRobotRepositoryResult
 {

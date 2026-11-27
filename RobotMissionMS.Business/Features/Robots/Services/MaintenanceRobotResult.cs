@@ -5,6 +5,7 @@ public enum MaintenanceRobotError
     NotFound,
     OnActiveTrip,
     AlreadyInMaintenance,
+    Inactive,
 }
 
 public sealed class MaintenanceRobotResult

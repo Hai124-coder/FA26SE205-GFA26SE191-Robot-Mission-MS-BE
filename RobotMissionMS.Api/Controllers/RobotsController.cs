@@ -279,7 +279,7 @@ public sealed class RobotsController(
                 statusCode: StatusCodes.Status404NotFound),
             DeleteRobotError.RobotOnActiveTrip => Problem(
                 type: "ROBOTS_ON_ACTIVE_TRIP",
-                title: "Cannot decommission a robot that is currently on an active trip.",
+                title: "Cannot decommission a robot while it has an active trip or charging session.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException("Robot service returned an invalid delete result.")
         };
@@ -287,7 +287,7 @@ public sealed class RobotsController(
 
     /// <summary>
     /// Suspends a robot: it finishes its current trip then stops accepting new ones (SC-14).
-    /// Operator or Admin. State is mapped to MAINTENANCE (SUSPENDED not in current DB schema).
+    /// Operator or Admin. An idle robot becomes INACTIVE immediately.
     /// </summary>
     [HttpPost("{id:guid}/suspend")]
     [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
@@ -350,6 +350,9 @@ public sealed class RobotsController(
             ResumeRobotError.NotSuspended => Problem(
                 type: "ROBOTS_NOT_SUSPENDED",
                 title: "The robot is not currently suspended.",
+                statusCode: StatusCodes.Status409Conflict),
+            ResumeRobotError.Offline => Problem(
+                type: "ROBOTS_OFFLINE", title: "The robot must be connected before it can resume.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException("Robot service returned an invalid resume result.")
         };
@@ -436,13 +439,15 @@ public sealed class RobotsController(
                 type: "ROBOTS_ALREADY_IN_MAINTENANCE",
                 title: "The robot is already in maintenance mode.",
                 statusCode: StatusCodes.Status409Conflict),
+            MaintenanceRobotError.Inactive => Problem(
+                type: "ROBOTS_INACTIVE", title: "An inactive or suspended robot cannot enter maintenance.",
+                statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException("Robot service returned an invalid maintenance result.")
         };
     }
 
     /// <summary>
-    /// Returns a robot from maintenance back to service (SC-14). Operator or Admin.
-    /// Robot must be in MAINTENANCE state.
+    /// Returns a robot in MAINTENANCE or ERROR back to service (SC-14). Operator only.
     /// </summary>
     [HttpPost("{id:guid}/back-to-service")]
     [Authorize(Policy = AuthPolicies.OperatorOnly)]
@@ -469,7 +474,7 @@ public sealed class RobotsController(
                 statusCode: StatusCodes.Status404NotFound),
             BackToServiceRobotError.NotInMaintenance => Problem(
                 type: "ROBOTS_NOT_IN_MAINTENANCE",
-                title: "The robot is not currently in maintenance mode.",
+                title: "The robot must be in maintenance or error state.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException("Robot service returned an invalid back-to-service result.")
         };

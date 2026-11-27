@@ -82,7 +82,7 @@ public interface IRobotService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns a robot from maintenance back to service (State = AVAILABLE).
+    /// Returns a robot in MAINTENANCE or ERROR to AVAILABLE.
     /// </summary>
     Task<BackToServiceRobotResult> BackToServiceAsync(
         Guid actorUserId, Guid robotId,

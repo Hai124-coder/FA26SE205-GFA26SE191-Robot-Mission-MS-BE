@@ -21,9 +21,10 @@ public sealed class RobotStateTelemetryProcessor(
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<RobotMissionDbContext>();
-        var robot = await db.Robots.Include(item => item.Zone).SingleOrDefaultAsync(
-            item => item.RobotCode == state.RobotId,
-            cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var robot = await db.Robots
+            .FromSqlInterpolated($"SELECT * FROM public.\"Robots\" WHERE \"RobotCode\" = {state.RobotId} FOR UPDATE")
+            .Include(item => item.Zone).SingleOrDefaultAsync(cancellationToken);
 
         if (robot is null)
             return RobotStateTelemetryProcessResult.RobotNotFound;
@@ -34,6 +35,18 @@ public sealed class RobotStateTelemetryProcessor(
         robot.Battery = state.Battery;
         robot.LastHeartbeatAt = receivedAt;
         robot.IsConnected = true;
+
+        if (state.Status == "IDLE" && robot.DecommissionedAt is null)
+        {
+            if (robot.SuspendRequestedAt is not null)
+                await db.SetRobotStateAfterWorkAsync(robot, cancellationToken);
+            else if (robot.AwaitingFirstConnection && robot.State == RobotState.Inactive
+                && !await db.HasRobotWorkAsync(robot.Id, cancellationToken))
+            {
+                robot.AwaitingFirstConnection = false;
+                robot.State = RobotState.Available;
+            }
+        }
 
         db.TelemetrySnapshots.Add(new TelemetrySnapshot
         {
@@ -59,8 +72,9 @@ public sealed class RobotStateTelemetryProcessor(
             .Select(item => (Guid?)item.Id)
             .FirstOrDefaultAsync(cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
-        if (realtime is not null)
+        if (transaction is not null && realtime is not null)
         {
             try
             {
