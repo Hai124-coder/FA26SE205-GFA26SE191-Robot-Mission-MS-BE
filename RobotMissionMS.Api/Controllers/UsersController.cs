@@ -15,21 +15,20 @@ namespace RobotMissionMS.Api.Controllers;
 public sealed class UsersController(IUserService userService) : ControllerBase
 {
     [HttpPost("{id:guid}/reset-password")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(UserListItemResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ResetUserPassword(
+    public async Task<ActionResult<UserListItemResponse>> ResetUserPassword(
         Guid id,
-        [FromBody] ResetUserPasswordRequest request,
         CancellationToken cancellationToken)
     {
         var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
         if (!Guid.TryParse(subject, out var resetByUserId))
             return Unauthorized();
 
-        var result = await userService.ResetUserPasswordAsync(resetByUserId, id, request, cancellationToken);
+        var result = await userService.ResetUserPasswordAsync(resetByUserId, id, new ResetUserPasswordRequest(), cancellationToken);
         if (result.IsSuccess)
-            return NoContent();
+            return Ok(result.Response!);
 
         return result.Error switch
         {
@@ -41,6 +40,7 @@ public sealed class UsersController(IUserService userService) : ControllerBase
                 type: "USERS_NOT_FOUND",
                 title: "The requested user was not found.",
                 statusCode: StatusCodes.Status404NotFound),
+            ResetUserPasswordError.CannotResetSelf => Problem(type: "ADMIN_CANNOT_RESET_SELF", statusCode: StatusCodes.Status400BadRequest),
             _ => throw new InvalidOperationException("User service returned an invalid password-reset result.")
         };
     }

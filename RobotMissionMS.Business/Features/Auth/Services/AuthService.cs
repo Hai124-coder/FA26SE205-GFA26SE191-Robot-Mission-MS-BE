@@ -4,6 +4,9 @@ using RobotMissionMS.Business.Features.Auth.DTOs;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
+using RobotMissionMS.DataAccess.Persistence;
+using RobotMissionMS.DataAccess.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace RobotMissionMS.Business.Features.Auth.Services;
 
@@ -16,6 +19,7 @@ public sealed class AuthService(
     IPasswordService passwords,
     IAccessTokenIssuer accessTokens,
     IRefreshTokenGenerator refreshTokens,
+    RobotMissionDbContext db,
     TimeProvider clock) : IAuthService
 {
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -72,7 +76,8 @@ public sealed class AuthService(
                 FullName = user.FullName,
                 Role = user.Role.Name,
                 Floor = user.Zone?.Code
-            }
+            },
+            MustChangePassword = user.MustChangePassword
         };
 
         repository.AddRefreshToken(new RefreshToken
@@ -85,6 +90,12 @@ public sealed class AuthService(
             ExpiresAt = refresh.ExpiresAt.UtcDateTime
         });
         repository.AddLoginActivity(user.Id, familyId, refresh.CreatedAt.UtcDateTime);
+        await db.Users.Where(value => value.Id == user.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(value => value.LastLoginAt, refresh.CreatedAt.UtcDateTime), cancellationToken);
+        await db.PasswordResetRequests.Where(value => value.UserId == user.Id && value.Status == PasswordResetRequestStatus.Open)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(value => value.Status, PasswordResetRequestStatus.Cancelled)
+                .SetProperty(value => value.ProcessedAt, refresh.CreatedAt.UtcDateTime), cancellationToken);
         await repository.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return LoginResult.Success(response);
@@ -120,6 +131,9 @@ public sealed class AuthService(
             await transaction.CommitAsync(cancellationToken);
             return RefreshResult.Failure(RefreshError.AccountInactive);
         }
+
+        if (user.MustChangePassword)
+            return RefreshResult.Failure(RefreshError.PasswordChangeRequired);
 
         if (current.ExpiresAt <= now.UtcDateTime)
             return RefreshResult.Failure(RefreshError.InvalidRefreshToken);
@@ -168,7 +182,8 @@ public sealed class AuthService(
                 FullName = user.FullName,
                 Role = user.Role.Name,
                 Floor = user.Zone?.Code
-            }
+            },
+            MustChangePassword = user.MustChangePassword
         });
     }
 
@@ -223,8 +238,49 @@ public sealed class AuthService(
             FullName = user.FullName,
             Role = user.Role.Name,
             Floor = user.Zone?.Code,
+            MustChangePassword = user.MustChangePassword,
             Screens = access.Screens,
             ReadOnlyScreens = access.ReadOnlyScreens
         };
     }
+
+    public async Task<ChangePasswordResult> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || request is null || !Validator.TryValidateObject(request, new ValidationContext(request), null, true))
+            return ChangePasswordResult.Failure(ChangePasswordError.InvalidRequest);
+        await using var transaction = await repository.BeginTransactionAsync(cancellationToken);
+        var user = await repository.LockUserAsync(userId, cancellationToken);
+        if (user is null || !user.IsActive) return ChangePasswordResult.Failure(ChangePasswordError.UserNotFound);
+        if (passwords.VerifyPassword(user, request.CurrentPassword) == PasswordCheckResult.Failed)
+            return ChangePasswordResult.Failure(ChangePasswordError.WrongCurrentPassword);
+        if (!IsStrongPassword(request.NewPassword, user.Username)) return ChangePasswordResult.Failure(ChangePasswordError.WeakPassword);
+        if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal)) return ChangePasswordResult.Failure(ChangePasswordError.PasswordSameAsOld);
+
+        var now = clock.GetUtcNow().ToUniversalTime();
+        await repository.UpdatePasswordHashAsync(user.Id, passwords.HashPassword(user, request.NewPassword), cancellationToken);
+        await db.Users.Where(value => value.Id == user.Id).ExecuteUpdateAsync(setters => setters.SetProperty(value => value.MustChangePassword, false), cancellationToken);
+        await repository.RevokeAllForUserAsync(user.Id, now.UtcDateTime, cancellationToken);
+        var familyId = Guid.NewGuid(); var refresh = refreshTokens.Generate(); var access = accessTokens.Issue(user, familyId);
+        repository.AddRefreshToken(new RefreshToken { Id = Guid.NewGuid(), UserId = user.Id, TokenHash = refresh.TokenHash, FamilyId = familyId, CreatedAt = refresh.CreatedAt.UtcDateTime, ExpiresAt = refresh.ExpiresAt.UtcDateTime });
+        db.ActivityLogs.Add(new ActivityLog { UserId = user.Id, Timestamp = now.UtcDateTime, Action = "PASSWORD_CHANGED", TargetObject = $"User:{user.Id:D}" });
+        await repository.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return ChangePasswordResult.Success(new AuthResponse { AccessToken = access.Token, AccessTokenExpiresAt = access.ExpiresAt, RefreshToken = refresh.Token, RefreshTokenExpiresAt = refresh.ExpiresAt, MustChangePassword = false, User = new AuthUserResponse { Id = user.Id, Username = user.Username, FullName = user.FullName, Role = user.Role.Name, Floor = user.Zone?.Code } });
+    }
+
+    public async Task<ForgotPasswordResult> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request is null || !Validator.TryValidateObject(request, new ValidationContext(request), null, true)) return ForgotPasswordResult.Invalid();
+        var user = await db.Users.SingleOrDefaultAsync(value => value.Username == request.Username, cancellationToken);
+        if (user is null || !user.IsActive) return ForgotPasswordResult.Accepted();
+        var alreadyOpen = await db.PasswordResetRequests.AnyAsync(value => value.UserId == user.Id && value.Status == PasswordResetRequestStatus.Open, cancellationToken);
+        if (alreadyOpen) return ForgotPasswordResult.Accepted();
+        var now = clock.GetUtcNow().UtcDateTime;
+        db.PasswordResetRequests.Add(new PasswordResetRequest { Id = Guid.NewGuid(), RequestCode = $"PR-{Guid.NewGuid():N}"[..15].ToUpperInvariant(), UserId = user.Id, Note = request.Note?.Trim(), Status = PasswordResetRequestStatus.Open, RequestedAt = now });
+        db.ActivityLogs.Add(new ActivityLog { UserId = null, Timestamp = now, Action = "PASSWORD_RESET_REQUESTED", TargetObject = $"User:{user.Id:D}" });
+        try { await db.SaveChangesAsync(cancellationToken); } catch (DbUpdateException) { db.ChangeTracker.Clear(); }
+        return ForgotPasswordResult.Accepted();
+    }
+
+    private static bool IsStrongPassword(string password, string username) => password.Length >= 8 && password.Any(char.IsLetter) && password.Any(char.IsDigit) && !string.Equals(password, username, StringComparison.OrdinalIgnoreCase);
 }

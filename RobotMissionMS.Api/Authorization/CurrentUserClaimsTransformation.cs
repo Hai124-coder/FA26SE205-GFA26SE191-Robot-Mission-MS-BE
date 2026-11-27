@@ -34,6 +34,9 @@ public sealed class CurrentUserClaimsTransformation(RobotMissionDbContext db) : 
         foreach (var claim in identity.Claims.Where(x => x.Type == floorClaimType).ToArray()) identity.RemoveClaim(claim);
         if (string.Equals(user.Role.Name, "OPERATOR", StringComparison.OrdinalIgnoreCase) && user.Zone?.Code is { } floor)
             identity.AddClaim(new Claim(floorClaimType, floor));
+        const string mustChangePasswordClaimType = "rmms:must-change-password";
+        foreach (var claim in identity.Claims.Where(x => x.Type == mustChangePasswordClaimType).ToArray()) identity.RemoveClaim(claim);
+        if (user.MustChangePassword) identity.AddClaim(new Claim(mustChangePasswordClaimType, "true"));
         return principal;
     }
 }

@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using RobotMissionMS.Business.Features.Auth.DTOs;
 using RobotMissionMS.Business.Features.Auth.Services;
 
@@ -71,8 +72,36 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
                 type: "AUTH_ACCOUNT_INACTIVE",
                 title: "This account is inactive.",
                 statusCode: StatusCodes.Status403Forbidden),
+            RefreshError.PasswordChangeRequired => Problem(type: "PASSWORD_CHANGE_REQUIRED", title: "A password change is required.", statusCode: StatusCodes.Status403Forbidden),
             _ => throw new InvalidOperationException("Auth service returned an invalid refresh result.")
         };
+    }
+
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<ActionResult<AuthResponse>> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId)) return Unauthorized();
+        var result = await authService.ChangePasswordAsync(userId, request, cancellationToken);
+        if (result.IsSuccess) return Ok(result.Response!);
+        return result.Error switch
+        {
+            ChangePasswordError.InvalidRequest => Problem(type: "AUTH_INVALID_CHANGE_PASSWORD_REQUEST", statusCode: 400),
+            ChangePasswordError.WrongCurrentPassword => Problem(type: "WRONG_CURRENT_PASSWORD", statusCode: 400),
+            ChangePasswordError.WeakPassword => Problem(type: "WEAK_PASSWORD", statusCode: 400),
+            ChangePasswordError.PasswordSameAsOld => Problem(type: "PASSWORD_SAME_AS_OLD", statusCode: 400),
+            _ => Unauthorized()
+        };
+    }
+
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    [EnableRateLimiting("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var result = await authService.ForgotPasswordAsync(request, cancellationToken);
+        if (result.InvalidRequest) return Problem(type: "AUTH_INVALID_FORGOT_PASSWORD_REQUEST", statusCode: 400);
+        return Accepted(new { message = "If the account is eligible, the request has been recorded." });
     }
 
     [AllowAnonymous]

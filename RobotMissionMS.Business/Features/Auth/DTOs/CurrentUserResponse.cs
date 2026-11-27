@@ -2,6 +2,7 @@
 
 public sealed class CurrentUserResponse : AuthUserResponse
 {
+    public required bool MustChangePassword { get; init; }
     public IReadOnlyList<string> Screens { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<string> ReadOnlyScreens { get; init; } = Array.Empty<string>();

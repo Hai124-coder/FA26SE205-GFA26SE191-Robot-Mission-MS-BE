@@ -1,0 +1,25 @@
+{
+  "mapName": "WEBOTS-F2-TEST-V1",
+  "backendMapVersionId": null,
+  "coordinateSystem": {
+    "backend": {
+      "units": "meters",
+      "origin": "south-west corner",
+      "xAxis": "east",
+      "yAxis": "north"
+    },
+    "webots": {
+      "units": "meters",
+      "horizontalAxes": "x/east, z/north"
+    },
+    "transform": {
+      "webotsX": "backendX - 2.0",
+      "webotsZ": "backendY - 2.0"
+    }
+  },
+  "nodes": {
+    "F2-PHARM": { "backend": { "x": 2.5, "y": 2.0 }, "webots": { "x": 0.5, "z": 0.0 } },
+    "F2-ICU": { "backend": { "x": 3.1, "y": 2.0 }, "webots": { "x": 1.1, "z": 0.0 } },
+    "F2-PEDS": { "backend": { "x": 3.1, "y": 2.6 }, "webots": { "x": 1.1, "z": 0.6 } }
+  }
+}

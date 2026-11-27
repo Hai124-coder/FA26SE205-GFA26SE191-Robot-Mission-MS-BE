@@ -17,6 +17,10 @@ public partial class User
 
     public bool IsActive { get; set; }
 
+    public bool MustChangePassword { get; set; }
+
+    public DateTime? LastLoginAt { get; set; }
+
     public Guid RoleId { get; set; }
 
     public DateTime CreatedAt { get; set; }
@@ -50,6 +54,10 @@ public partial class User
     public virtual Role Role { get; set; } = null!;
 
     public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+
+    public virtual ICollection<PasswordResetRequest> PasswordResetRequests { get; set; } = new List<PasswordResetRequest>();
+
+    public virtual ICollection<PasswordResetRequest> ProcessedPasswordResetRequests { get; set; } = new List<PasswordResetRequest>();
 
     public virtual ICollection<SystemSetting> SystemSettings { get; set; } = new List<SystemSetting>();
 

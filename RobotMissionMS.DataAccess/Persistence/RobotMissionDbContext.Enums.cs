@@ -61,6 +61,7 @@ public partial class RobotMissionDbContext
         modelBuilder.Entity<Trip>().Property(e => e.Status).HasColumnType("trip_status").HasDefaultValueSql("'PLANNED'::trip_status");
         modelBuilder.Entity<TripStop>().Property(e => e.Action).HasColumnType("trip_stop_action");
         modelBuilder.Entity<TripStop>().Property(e => e.Status).HasColumnType("trip_stop_status").HasDefaultValueSql("'PENDING'::trip_stop_status");
+        modelBuilder.Entity<PasswordResetRequest>().Property(e => e.Status).HasColumnType("password_reset_request_status").HasDefaultValueSql("'OPEN'::password_reset_request_status");
         modelBuilder.Entity<Zone>().Property(e => e.OperationMode).HasColumnType("zone_mode").HasDefaultValueSql("'NORMAL'::zone_mode");
         modelBuilder.Entity<ChargingSession>().HasIndex(e => new { e.ChargingStationId, e.Status }, "ChargingSessions_ChargingStationId_Status_idx");
         modelBuilder.Entity<ChargingSession>().HasIndex(e => new { e.RobotId, e.Status }, "ChargingSessions_RobotId_Status_idx");

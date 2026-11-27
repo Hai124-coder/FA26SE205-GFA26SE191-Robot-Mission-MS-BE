@@ -2,6 +2,18 @@ using NpgsqlTypes;
 
 namespace RobotMissionMS.DataAccess.Enums;
 
+public enum PasswordResetRequestStatus
+{
+    [PgName("OPEN")]
+    Open,
+    [PgName("DONE")]
+    Done,
+    [PgName("REJECTED")]
+    Rejected,
+    [PgName("CANCELLED")]
+    Cancelled
+}
+
 public enum AlertCategory
 {
     [PgName("ROBOT")]

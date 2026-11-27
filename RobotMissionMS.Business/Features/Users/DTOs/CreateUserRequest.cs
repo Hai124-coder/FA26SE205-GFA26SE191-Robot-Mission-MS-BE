@@ -23,7 +23,4 @@ public sealed class CreateUserRequest
     [StringLength(20)]
     public string? Floor { get; init; }
 
-    [Required]
-    [StringLength(1024, MinimumLength = 8)]
-    public string TemporaryPassword { get; init; } = string.Empty;
 }

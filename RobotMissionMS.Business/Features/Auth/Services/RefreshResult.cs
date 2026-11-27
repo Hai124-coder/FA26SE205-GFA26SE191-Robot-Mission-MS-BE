@@ -6,7 +6,8 @@ public enum RefreshError
 {
     InvalidRequest,
     InvalidRefreshToken,
-    AccountInactive
+    AccountInactive,
+    PasswordChangeRequired
 }
 
 /// <summary>

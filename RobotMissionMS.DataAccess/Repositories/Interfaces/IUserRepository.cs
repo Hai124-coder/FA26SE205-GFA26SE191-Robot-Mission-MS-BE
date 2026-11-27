@@ -75,6 +75,9 @@ public sealed record UserListRow(
     string Role,
     string? FloorCode,
     bool IsActive,
+    bool MustChangePassword,
+    bool HasOpenResetRequest,
+    DateTime? LastLoginAt,
     DateTime CreatedAt);
 
 public sealed record RoleRecord(Guid Id, string Name);
@@ -88,6 +91,7 @@ public sealed record UserCreateRecord(
     string? Email,
     Guid RoleId,
     Guid? ZoneId,
+    bool MustChangePassword,
     DateTime CreatedAt);
 
 public enum UserCreateDataError

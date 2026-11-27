@@ -1,0 +1,14 @@
+{
+  "widthM": 4.0,
+  "heightM": 4.0,
+  "backgroundImagePath": null,
+  "nodes": [
+    { "code": "F2-PHARM", "nodeType": "STOP", "x": 2.5, "y": 2.0 },
+    { "code": "F2-ICU", "nodeType": "STOP", "x": 3.1, "y": 2.0 },
+    { "code": "F2-PEDS", "nodeType": "STOP", "x": 3.1, "y": 2.6 }
+  ],
+  "edges": [
+    { "from": "F2-PHARM", "to": "F2-ICU", "distanceMeters": 0.6, "isBidirectional": true },
+    { "from": "F2-ICU", "to": "F2-PEDS", "distanceMeters": 0.6, "isBidirectional": true }
+  ]
+}

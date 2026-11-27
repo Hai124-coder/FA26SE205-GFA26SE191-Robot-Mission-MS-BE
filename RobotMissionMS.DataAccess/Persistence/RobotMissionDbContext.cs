@@ -57,6 +57,8 @@ public partial class RobotMissionDbContext : DbContext
 
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
+    public virtual DbSet<PasswordResetRequest> PasswordResetRequests { get; set; }
+
     public virtual DbSet<Request> Requests { get; set; }
 
     public virtual DbSet<RobotType> RobotTypes { get; set; }
@@ -100,6 +102,7 @@ public partial class RobotMissionDbContext : DbContext
             .HasPostgresEnum("trip_status", new[] { "PLANNED", "DISPATCHED", "IN_PROGRESS", "COMPLETED", "ABORTED" })
             .HasPostgresEnum("trip_stop_action", new[] { "PICKUP", "DROP", "ROUTE_POINT", "RETURN" })
             .HasPostgresEnum("trip_stop_status", new[] { "PENDING", "ARRIVED", "DONE", "SKIPPED" })
+            .HasPostgresEnum("password_reset_request_status", new[] { "OPEN", "DONE", "REJECTED", "CANCELLED" })
             .HasPostgresEnum("zone_mode", new[] { "NORMAL", "DRAINING", "MAINTENANCE" })
             .HasPostgresExtension("extensions", "pg_stat_statements")
             .HasPostgresExtension("extensions", "pgcrypto")
@@ -302,6 +305,19 @@ public partial class RobotMissionDbContext : DbContext
                 .HasForeignKey(d => d.MissionTypeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("Items_MissionTypeId_fkey");
+        });
+
+        modelBuilder.Entity<PasswordResetRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PasswordResetRequests_pkey");
+            entity.HasIndex(e => e.RequestCode, "PasswordResetRequests_RequestCode_key").IsUnique();
+            entity.HasIndex(e => new { e.Status, e.RequestedAt }, "PasswordResetRequests_Status_RequestedAt_idx");
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.RequestCode).HasMaxLength(50);
+            entity.Property(e => e.Note).HasMaxLength(120);
+            entity.Property(e => e.RequestedAt).HasDefaultValueSql("now()");
+            entity.HasOne(e => e.User).WithMany(e => e.PasswordResetRequests).HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("PasswordResetRequests_UserId_fkey");
+            entity.HasOne(e => e.ProcessedByUser).WithMany(e => e.ProcessedPasswordResetRequests).HasForeignKey(e => e.ProcessedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("PasswordResetRequests_ProcessedByUserId_fkey");
         });
 
         modelBuilder.Entity<Location>(entity =>
@@ -792,6 +808,8 @@ public partial class RobotMissionDbContext : DbContext
             entity.Property(e => e.Email).HasMaxLength(100);
             entity.Property(e => e.FullName).HasMaxLength(200);
             entity.Property(e => e.IsActive).HasDefaultValue(true);
+            entity.Property(e => e.MustChangePassword).HasDefaultValue(false);
+            entity.Property(e => e.LastLoginAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.PasswordHash).HasMaxLength(255);
             entity.Property(e => e.Username).HasMaxLength(100);
 

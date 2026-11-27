@@ -154,11 +154,22 @@ không tạo thêm lịch sử; thông điệp sai thứ tự bị từ chối.
 Mỗi `nodeId` trong order cần một tọa độ Webots xác định. Giai đoạn đầu dùng
 một bảng ánh xạ versioned theo `mapVersionId` với ba node tối thiểu:
 
-| Node | Mục đích | Tọa độ Webots |
+| Node | Mục đích | Tọa độ Webots (x, z) |
 | --- | --- | --- |
-| `F2-PHARM` | PICKUP | Chốt khi dựng world |
-| `F2-ICU` | DROP | Chốt khi dựng world |
-| `F2-PEDS` | DROP | Chốt khi dựng world |
+| `F2-PHARM` | PICKUP | `(0.5, 0.0)` |
+| `F2-ICU` | DROP | `(1.1, 0.0)` |
+| `F2-PEDS` | DROP | `(1.1, 0.6)` |
+
+Package `webots/maps/hospital_f2_test_map.json` là **map test**, không phải
+bản đồ bệnh viện thật. Nó có cùng các node đã nêu trong API updated để test
+luồng pickup/drop. `webots/config/hospital_f2_test_nodes.json` ghi rõ phép đổi
+từ tọa độ backend sang mặt phẳng Webots: `webotsX = backendX - 2.0` và
+`webotsZ = backendY - 2.0`.
+
+Trước một kiểm thử end-to-end, Admin import package này vào tầng F2 rồi publish
+map version mới. GUID trả về được điền vào `backendMapVersionId`; controller
+chỉ nhận order có `mapVersionId` đó. Không import hay publish package này vào
+database khi chưa chủ động bắt đầu kiểm thử integration.
 
 Controller không được tự suy diễn tọa độ từ tên node. Nếu thiếu ánh xạ hoặc
 `mapVersionId` không khớp, controller giữ `IDLE` và gửi alert trong giai đoạn

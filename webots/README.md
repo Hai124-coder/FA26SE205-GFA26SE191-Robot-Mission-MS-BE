@@ -9,6 +9,12 @@ The authoritative backend/Webots integration contract, including the future
 [`docs/mqtt-webots-contract.md`](../docs/mqtt-webots-contract.md). This README
 documents only the controller capabilities currently implemented.
 
+`maps/hospital_f2_test_map.json` and `config/hospital_f2_test_nodes.json` are
+an isolated, three-node integration map for the first order-execution test.
+They do not alter backend data until an Admin explicitly imports and publishes
+the package. See the MQTT/Webots contract for the coordinate transform and
+import sequence.
+
 ## MQTT contract used by the simulation
 
 | Direction | Topic | QoS | Payload |

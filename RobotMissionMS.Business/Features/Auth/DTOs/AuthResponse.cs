@@ -11,4 +11,6 @@ public sealed class AuthResponse
     public required DateTimeOffset RefreshTokenExpiresAt { get; init; }
 
     public required AuthUserResponse User { get; init; }
+
+    public required bool MustChangePassword { get; init; }
 }

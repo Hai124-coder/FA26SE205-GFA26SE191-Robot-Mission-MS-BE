@@ -4,29 +4,32 @@ using RobotMissionMS.Business.Features.Users.DTOs;
 using RobotMissionMS.Business.Features.Auth.Security;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Repositories.Interfaces;
+using RobotMissionMS.DataAccess.Persistence;
 
 namespace RobotMissionMS.Business.Features.Users.Services;
 
-public sealed class UserService(IUserRepository repository, IPasswordService passwords, TimeProvider clock) : IUserService
+public sealed class UserService(IUserRepository repository, IPasswordService passwords, ITemporaryPasswordGenerator temporaryPasswords, TimeProvider clock) : IUserService
 {
     public async Task<ResetUserPasswordResult> ResetUserPasswordAsync(Guid resetByUserId, Guid userId,
         ResetUserPasswordRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (resetByUserId == Guid.Empty || userId == Guid.Empty
-            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
-            || string.IsNullOrWhiteSpace(request.TemporaryPassword))
+            || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true))
             return ResetUserPasswordResult.Failure(ResetUserPasswordError.InvalidRequest);
+
+        if (resetByUserId == userId) return ResetUserPasswordResult.Failure(ResetUserPasswordError.CannotResetSelf);
 
         var user = await repository.FindUserByIdAsync(userId, cancellationToken);
         if (user is null)
             return ResetUserPasswordResult.Failure(ResetUserPasswordError.UserNotFound);
 
         var resetAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
+        var temporaryPassword = temporaryPasswords.Generate();
         var userForHash = new User { Id = user.Id, Username = user.Username };
         var dataResult = await repository.ResetUserPasswordAsync(
             userId,
-            passwords.HashPassword(userForHash, request.TemporaryPassword),
+            passwords.HashPassword(userForHash, temporaryPassword),
             resetByUserId,
             resetAt.UtcDateTime,
             cancellationToken);
@@ -39,7 +42,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             };
         }
 
-        return ResetUserPasswordResult.Success();
+        return ResetUserPasswordResult.Success(ToResponse(user, mustChangePassword: true, hasOpenResetRequest: false, tempPassword: temporaryPassword));
     }
 
     public async Task<UpdateUserStatusResult> UpdateUserStatusAsync(Guid updatedByUserId, Guid userId,
@@ -67,17 +70,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             };
         }
 
-        return UpdateUserStatusResult.Success(new UserListItemResponse
-        {
-            Id = user.Id,
-            Username = user.Username,
-            FullName = user.FullName,
-            Email = user.Email,
-            Role = user.Role,
-            Floor = user.FloorCode,
-            IsActive = request.Active.Value,
-            CreatedAt = new DateTimeOffset(user.CreatedAt)
-        });
+        return UpdateUserStatusResult.Success(ToResponse(user, isActive: request.Active.Value));
     }
 
     public async Task<UpdateUserResult> UpdateUserAsync(Guid updatedByUserId, Guid userId, UpdateUserRequest request,
@@ -112,17 +105,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             };
         }
 
-        return UpdateUserResult.Success(new UserListItemResponse
-        {
-            Id = user.Id,
-            Username = user.Username,
-            FullName = request.FullName,
-            Email = user.Email,
-            Role = role.Name,
-            Floor = floorResult.FloorCode,
-            IsActive = user.IsActive,
-            CreatedAt = new DateTimeOffset(user.CreatedAt)
-        });
+        return UpdateUserResult.Success(ToResponse(user, fullName: request.FullName, role: role.Name, floor: floorResult.FloorCode));
     }
 
     public async Task<CreateUserResult> CreateUserAsync(Guid createdByUserId, CreateUserRequest request,
@@ -133,8 +116,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             || !Validator.TryValidateObject(request, new ValidationContext(request), null, validateAllProperties: true)
             || string.IsNullOrWhiteSpace(request.Username)
             || string.IsNullOrWhiteSpace(request.FullName)
-            || string.IsNullOrWhiteSpace(request.Role)
-            || string.IsNullOrWhiteSpace(request.TemporaryPassword))
+            || string.IsNullOrWhiteSpace(request.Role))
             return CreateUserResult.Failure(CreateUserError.InvalidRequest);
 
         if (await repository.UsernameExistsAsync(request.Username, cancellationToken))
@@ -154,15 +136,17 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
 
         var createdAt = TruncateToMicroseconds(clock.GetUtcNow().ToUniversalTime());
         var id = Guid.NewGuid();
+        var temporaryPassword = temporaryPasswords.Generate();
         var userForHash = new User { Id = id, Username = request.Username };
         var dataResult = await repository.CreateUserAsync(new UserCreateRecord(
                 id,
                 request.Username,
-                passwords.HashPassword(userForHash, request.TemporaryPassword),
+                passwords.HashPassword(userForHash, temporaryPassword),
                 request.FullName,
                 request.Email,
                 role.Id,
                 floorResult.ZoneId,
+                true,
                 createdAt.UtcDateTime),
             createdByUserId,
             createdAt.UtcDateTime,
@@ -177,17 +161,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
             };
         }
 
-        return CreateUserResult.Success(new UserListItemResponse
-        {
-            Id = id,
-            Username = request.Username,
-            FullName = request.FullName,
-            Email = request.Email,
-            Role = role.Name,
-            Floor = floorResult.FloorCode,
-            IsActive = true,
-            CreatedAt = createdAt
-        });
+        return CreateUserResult.Success(new UserListItemResponse { Id = id, Username = request.Username, FullName = request.FullName, Email = request.Email, Role = role.Name, Floor = floorResult.FloorCode, IsActive = true, MustChangePassword = true, HasOpenResetRequest = false, LastLoginAt = null, TempPassword = temporaryPassword, CreatedAt = createdAt });
     }
 
     public async Task<UserListResult> GetUsersAsync(UserListQuery query, CancellationToken cancellationToken = default)
@@ -207,17 +181,7 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
 
         return UserListResult.Success(new PagedResponse<UserListItemResponse>
         {
-            Items = page.Items.Select(user => new UserListItemResponse
-            {
-                Id = user.Id,
-                Username = user.Username,
-                FullName = user.FullName,
-                Email = user.Email,
-                Role = user.Role,
-                Floor = user.FloorCode,
-                IsActive = user.IsActive,
-                CreatedAt = new DateTimeOffset(user.CreatedAt)
-            }).ToList(),
+            Items = page.Items.Select(user => ToResponse(user)).ToList(),
             Page = query.Page,
             PageSize = query.PageSize,
             Total = page.Total
@@ -229,6 +193,15 @@ public sealed class UserService(IUserRepository repository, IPasswordService pas
         var utc = value.UtcDateTime;
         return new DateTimeOffset(new DateTime(utc.Ticks - utc.Ticks % 10, DateTimeKind.Utc));
     }
+
+    private static UserListItemResponse ToResponse(UserListRow user, bool? isActive = null, bool? mustChangePassword = null, bool? hasOpenResetRequest = null, string? fullName = null, string? role = null, string? floor = null, string? tempPassword = null) => new()
+    {
+        Id = user.Id, Username = user.Username, FullName = fullName ?? user.FullName, Email = user.Email,
+        Role = role ?? user.Role, Floor = floor ?? user.FloorCode, IsActive = isActive ?? user.IsActive,
+        MustChangePassword = mustChangePassword ?? user.MustChangePassword, HasOpenResetRequest = hasOpenResetRequest ?? user.HasOpenResetRequest,
+        LastLoginAt = user.LastLoginAt is null ? null : new DateTimeOffset(user.LastLoginAt.Value), TempPassword = tempPassword,
+        CreatedAt = new DateTimeOffset(user.CreatedAt)
+    };
 
     private async Task<FloorResolution> ResolveFloorAsync(string role, string? floor, CancellationToken cancellationToken)
     {

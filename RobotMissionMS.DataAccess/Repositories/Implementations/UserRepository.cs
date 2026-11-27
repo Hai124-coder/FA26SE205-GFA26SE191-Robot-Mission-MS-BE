@@ -22,7 +22,9 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             .Where(user => user.Id == userId)
             .Select(user => new UserListRow(
                 user.Id, user.Username, user.FullName, user.Email, user.Role.Name, user.Zone == null ? null : user.Zone.Code,
-                user.IsActive, user.CreatedAt))
+                user.IsActive, user.MustChangePassword,
+                db.PasswordResetRequests.Any(request => request.UserId == user.Id && request.Status == RobotMissionMS.DataAccess.Enums.PasswordResetRequestStatus.Open),
+                user.LastLoginAt, user.CreatedAt))
             .SingleOrDefaultAsync(cancellationToken);
 
     public Task<ZoneRecord?> FindZoneByCodeAsync(string zoneCode, CancellationToken cancellationToken = default) =>
@@ -60,6 +62,9 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
                 user.Role.Name,
                 user.Zone == null ? null : user.Zone.Code,
                 user.IsActive,
+                user.MustChangePassword,
+                db.PasswordResetRequests.Any(request => request.UserId == user.Id && request.Status == RobotMissionMS.DataAccess.Enums.PasswordResetRequestStatus.Open),
+                user.LastLoginAt,
                 user.CreatedAt))
             .ToListAsync(cancellationToken);
 
@@ -84,6 +89,7 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
             FullName = user.FullName,
             Email = user.Email,
             IsActive = true,
+            MustChangePassword = user.MustChangePassword,
             RoleId = user.RoleId,
             ZoneId = user.ZoneId,
             CreatedAt = user.CreatedAt
@@ -193,12 +199,19 @@ public sealed class UserRepository(RobotMissionDbContext db) : IUserRepository
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var updated = await db.Users.Where(user => user.Id == userId)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.PasswordHash, passwordHash), cancellationToken);
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.PasswordHash, passwordHash)
+                .SetProperty(user => user.MustChangePassword, true), cancellationToken);
         if (updated == 0)
             return UserPasswordResetDataResult.Failure(UserPasswordResetDataError.UserNotFound);
 
         await db.RefreshTokens.Where(token => token.UserId == userId && token.RevokedAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, occurredAtUtc), cancellationToken);
+        await db.PasswordResetRequests.Where(request => request.UserId == userId && request.Status == RobotMissionMS.DataAccess.Enums.PasswordResetRequestStatus.Open)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(request => request.Status, RobotMissionMS.DataAccess.Enums.PasswordResetRequestStatus.Done)
+                .SetProperty(request => request.ProcessedAt, occurredAtUtc)
+                .SetProperty(request => request.ProcessedByUserId, resetByUserId), cancellationToken);
         db.ActivityLogs.Add(new ActivityLog
         {
             UserId = resetByUserId,

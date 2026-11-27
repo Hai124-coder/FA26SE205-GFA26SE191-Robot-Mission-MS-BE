@@ -1,12 +1,15 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using RobotMissionMS.Api.Extensions;
+using RobotMissionMS.Api.Authorization;
 using RobotMissionMS.Api.Realtime;
 using RobotMissionMS.Business.Features.Trips.Services;
 using RobotMissionMS.Business.Features.Tasks.Services;
 using RobotMissionMS.Business.Features.ActivityLogs.Services;
 using RobotMissionMS.Business.Features.Incidents.Services;
 using RobotMissionMS.DataAccess.Persistence;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +21,10 @@ builder.Services.AddDbContext<RobotMissionDbContext>((services, options) =>
     options.UseNpgsql(services.GetRequiredService<NpgsqlDataSource>()));
 
 builder.Services.AddControllers();
+builder.Services.AddRateLimiter(options => options.AddPolicy("forgot-password", context =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(10), QueueLimit = 0, AutoReplenishment = true })));
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IOperationsRealtimePublisher, OperationsRealtimePublisher>();
 builder.Services.AddSingleton<IRobotStateRealtimePublisher, OperationsRobotRealtimePublisher>();
@@ -98,7 +105,9 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 
 app.UseAuthentication();
+app.UseMiddleware<MustChangePasswordMiddleware>();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<OperationsHub>("/hubs/ops");
