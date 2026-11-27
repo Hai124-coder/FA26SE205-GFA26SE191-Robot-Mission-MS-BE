@@ -42,11 +42,12 @@ public sealed class RobotHistoryChargingSessionItem
     public required Guid     SessionId          { get; init; }
     public required string   StationName        { get; init; }
     public required string   StationLocationCode { get; init; }
-    public required DateTime StartedAt          { get; init; }
+    public required DateTime QueuedAt           { get; init; }
+    public DateTime?         StartedAt          { get; init; }
     public DateTime?         EndedAt            { get; init; }
 
     /// <summary>
-    /// Duration in minutes, null when session is still active.
+    /// Duration in minutes, available when both charging start and end are recorded.
     /// </summary>
     public double?           DurationMinutes    { get; init; }
 }

@@ -21,6 +21,8 @@ public interface IRobotRepository
     /// </summary>
     Task<RobotDetailRow?> GetRobotByIdAsync(Guid robotId, CancellationToken cancellationToken = default);
 
+    Task<string?> FindRobotFloorAsync(Guid robotId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Returns trips, alerts and charging sessions for one robot within [fromUtc, toUtc].
     /// Returns null when no robot with the given id exists.
@@ -253,7 +255,8 @@ public sealed record RobotHistoryChargingSessionRow(
     Guid     SessionId,
     string   StationName,
     string   StationLocationCode,
-    DateTime StartedAt,
+    DateTime QueuedAt,
+    DateTime? StartedAt,
     DateTime? EndedAt
 );
 

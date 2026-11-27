@@ -5,6 +5,7 @@ using RobotMissionMS.Business.Features.Robots.Services;
 using RobotMissionMS.DataAccess.Entities;
 using RobotMissionMS.DataAccess.Enums;
 using RobotMissionMS.DataAccess.Persistence;
+using RobotMissionMS.DataAccess.Repositories.Implementations;
 
 var connectionString = Environment.GetEnvironmentVariable("SECTION9_CONNECTION")
     ?? throw new InvalidOperationException("SECTION9_CONNECTION is required.");
@@ -78,5 +79,45 @@ var activities = await db.ActivityLogs
 if (!activities.OrderBy(value => value).SequenceEqual(new[] { "ROBOT_RESUME_QUEUED", "ROBOT_STOP_QUEUED" }.OrderBy(value => value)))
     throw new InvalidOperationException("Robot control activity audit is incomplete.");
 
-Console.WriteLine("robot-control-command=verified stop=1 resume=1 rejected=invalid,floor,offline rollback=planned");
+var robots = new RobotService(new RobotRepository(db));
+var scoped = await robots.GetRobotsAsync(new RobotListQuery { Floor = otherZone.Code }, zone.Code);
+if (!scoped.IsSuccess || scoped.Response is not { Count: 2 }
+    || scoped.Response.Any(robot => robot.Floor != zone.Code)
+    || await robots.FindRobotFloorAsync(onlineRobot.Id) != zone.Code)
+    throw new InvalidOperationException("Operator floor must take precedence over the list filter.");
+
+var at = now.Date.AddHours(12);
+var map = new MapVersion { Id = Guid.NewGuid(), ZoneId = zone.Id, VersionNo = 1, SourceJson = "{}",
+    WidthM = 1, HeightM = 1, Status = MapVersionStatus.Published, ImportedAt = at };
+var trip = new Trip { Id = Guid.NewGuid(), TripCode = $"TR{suffix}", ZoneId = zone.Id, RobotId = onlineRobot.Id,
+    MapVersionId = map.Id, Status = TripStatus.Completed, CreatedAt = at };
+var alert = new Alert { Id = Guid.NewGuid(), AlertType = "LOW_BATTERY", RobotId = onlineRobot.Id,
+    ZoneId = zone.Id, Message = "Test alert", Category = AlertCategory.Robot, Severity = AlertSeverity.Warning,
+    Status = AlertStatus.Open, CreatedAt = at };
+var location = new Location { Id = Guid.NewGuid(), ZoneId = zone.Id, Code = $"LOC{suffix}",
+    Name = "Charger", MapNodeCode = "N", Kind = LocationKind.Charger, IsActive = true };
+var station = new ChargingStation { Id = Guid.NewGuid(), LocationId = location.Id, Name = "Test station",
+    StationType = "STANDARD", Capacity = 1, Status = StationStatus.Operational };
+var queued = new ChargingSession { Id = Guid.NewGuid(), RobotId = onlineRobot.Id,
+    ChargingStationId = station.Id, QueuedAt = at, Status = ChargingSessionStatus.Queued };
+db.AddRange(map, trip, alert, location, station, queued);
+await db.SaveChangesAsync();
+
+var history = (await robots.GetRobotHistoryAsync(onlineRobot.Id, new RobotHistoryQuery { From = at, To = at })).Response;
+if (history is null || history.Trips.Single().TripId != trip.Id || history.Alerts.Single().AlertId != alert.Id
+    || history.ChargingSessions.Single() is not { StartedAt: null, DurationMinutes: null } session
+    || session.SessionId != queued.Id || session.QueuedAt != at)
+    throw new InvalidOperationException("History must include the three record types at the inclusive boundary.");
+
+var empty = (await robots.GetRobotHistoryAsync(onlineRobot.Id, new RobotHistoryQuery { From = at.AddSeconds(1), To = at.AddHours(1) })).Response;
+if (empty is null || empty.Trips.Count != 0 || empty.Alerts.Count != 0 || empty.ChargingSessions.Count != 0)
+    throw new InvalidOperationException("History included records outside the requested window.");
+
+var inverted = await robots.GetRobotHistoryAsync(onlineRobot.Id, new RobotHistoryQuery { From = at.AddDays(1), To = at });
+var missing = await robots.GetRobotHistoryAsync(Guid.NewGuid(), new RobotHistoryQuery());
+if (inverted.Error != RobotHistoryError.InvalidDateRange || missing.Error != RobotHistoryError.NotFound)
+    throw new InvalidOperationException("History did not distinguish an inverted window from a missing robot.");
+
 await transaction.RollbackAsync();
+Console.WriteLine("robot-control-command=verified stop=1 resume=1 rejected=invalid,floor,offline rollback=planned");
+Console.WriteLine("robot-list-history=verified scope=override history=trip,alert,queued bounds=inclusive rollback=complete");

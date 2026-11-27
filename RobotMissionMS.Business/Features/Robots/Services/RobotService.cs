@@ -9,6 +9,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
 {
     public async Task<RobotListResult> GetRobotsAsync(
         RobotListQuery    query,
+        string?           operatorFloor,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -25,7 +26,7 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
         }
 
         var rows = await repository.GetRobotsAsync(
-            string.IsNullOrWhiteSpace(query.Floor) ? null : query.Floor,
+            operatorFloor ?? query.Floor?.Trim(),
             string.IsNullOrWhiteSpace(query.Type)  ? null : query.Type,
             stateFilter,
             query.IsConnected,
@@ -52,6 +53,9 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
 
         return RobotListResult.Success(response);
     }
+
+    public Task<string?> FindRobotFloorAsync(Guid robotId, CancellationToken cancellationToken = default) =>
+        repository.FindRobotFloorAsync(robotId, cancellationToken);
 
     public async Task<RobotDetailResult> GetRobotDetailAsync(
         Guid              robotId,
@@ -144,12 +148,14 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var now    = DateTime.UtcNow;
-        var toUtc  = (query.To   ?? DateTimeOffset.UtcNow).UtcDateTime;
-        var fromUtc = (query.From ?? DateTimeOffset.UtcNow.AddDays(-7)).UtcDateTime;
+        var toUtc = (query.To ?? DateTimeOffset.UtcNow).UtcDateTime;
+        var fromUtc = query.From?.UtcDateTime
+            ?? (toUtc >= DateTime.MinValue.AddDays(7)
+                ? toUtc.AddDays(-7)
+                : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc));
 
         if (fromUtc > toUtc)
-            (fromUtc, toUtc) = (toUtc, fromUtc);
+            return RobotHistoryResult.Failure(RobotHistoryError.InvalidDateRange);
 
         var data = await repository.GetRobotHistoryAsync(robotId, fromUtc, toUtc, cancellationToken);
         if (data is null)
@@ -183,10 +189,11 @@ public sealed class RobotService(IRobotRepository repository) : IRobotService
             SessionId           = cs.SessionId,
             StationName         = cs.StationName,
             StationLocationCode = cs.StationLocationCode,
+            QueuedAt            = cs.QueuedAt,
             StartedAt           = cs.StartedAt,
             EndedAt             = cs.EndedAt,
-            DurationMinutes     = cs.EndedAt.HasValue
-                ? (cs.EndedAt.Value - cs.StartedAt).TotalMinutes
+            DurationMinutes     = cs.EndedAt is { } endedAt && cs.StartedAt is { } startedAt
+                ? (endedAt - startedAt).TotalMinutes
                 : null,
         }).ToList();
 

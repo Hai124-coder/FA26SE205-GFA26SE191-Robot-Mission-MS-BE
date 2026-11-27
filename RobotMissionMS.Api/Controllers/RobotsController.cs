@@ -25,11 +25,16 @@ public sealed class RobotsController(
     [ProducesResponseType(typeof(IReadOnlyList<RobotListItemResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<IReadOnlyList<RobotListItemResponse>>> GetRobots(
         [FromQuery] RobotListQuery query,
         CancellationToken cancellationToken)
     {
-        var result = await robotService.GetRobotsAsync(query, cancellationToken);
+        var operatorFloor = OperatorFloor();
+        if (User.IsInRole("OPERATOR") && operatorFloor is null)
+            return OperatorWithoutFloor();
+
+        var result = await robotService.GetRobotsAsync(query, operatorFloor, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
 
@@ -49,11 +54,15 @@ public sealed class RobotsController(
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(RobotDetailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<RobotDetailResponse>> GetRobotById(
         Guid id,
         CancellationToken cancellationToken)
     {
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
+
         var result = await robotService.GetRobotDetailAsync(id, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
@@ -124,23 +133,32 @@ public sealed class RobotsController(
 
     /// <summary>
     /// Returns trips, alerts and charging sessions for one robot within a time window (SC-14).
-    /// Query params: from, to (ISO 8601). Defaults to the last 7 days when omitted.
+    /// Query params: from, to (ISO 8601). Defaults to a seven-day window ending at to (or now).
     /// </summary>
     [HttpGet("{id:guid}/history")]
     [ProducesResponseType(typeof(RobotHistoryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<RobotHistoryResponse>> GetRobotHistory(
         Guid id,
         [FromQuery] RobotHistoryQuery query,
         CancellationToken cancellationToken)
     {
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
+
         var result = await robotService.GetRobotHistoryAsync(id, query, cancellationToken);
         if (result.IsSuccess)
             return Ok(result.Response!);
 
         return result.Error switch
         {
+            RobotHistoryError.InvalidDateRange => Problem(
+                type: "ROBOTS_HISTORY_INVALID_DATE_RANGE",
+                title: "The history start must be on or before the end.",
+                statusCode: StatusCodes.Status400BadRequest),
             RobotHistoryError.NotFound => Problem(
                 type: "ROBOTS_NOT_FOUND",
                 title: "The requested robot was not found.",
@@ -283,6 +301,7 @@ public sealed class RobotsController(
         CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
         var result = await robotService.SuspendRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
@@ -317,6 +336,7 @@ public sealed class RobotsController(
         CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
         var result = await robotService.ResumeRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
@@ -339,7 +359,7 @@ public sealed class RobotsController(
     /// Queues an idle robot for its configured home charging station (SC-14).
     /// </summary>
     [HttpPost("{id:guid}/charge")]
-    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [Authorize(Policy = AuthPolicies.OperatorOnly)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -350,6 +370,7 @@ public sealed class RobotsController(
         CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
         var result = await chargingSessions.QueueToHomeStationAsync(id, actorUserId, DateTime.UtcNow, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
@@ -381,11 +402,11 @@ public sealed class RobotsController(
     }
 
     /// <summary>
-    /// Puts a robot into maintenance mode (SC-14). Operator or Admin.
+    /// Puts a robot into maintenance mode (SC-14). Operator only.
     /// Refused with 409 if robot is on an active trip or already in maintenance.
     /// </summary>
     [HttpPost("{id:guid}/maintenance")]
-    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [Authorize(Policy = AuthPolicies.OperatorOnly)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -396,6 +417,7 @@ public sealed class RobotsController(
         CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
         var result = await robotService.MaintenanceRobotAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
@@ -423,7 +445,7 @@ public sealed class RobotsController(
     /// Robot must be in MAINTENANCE state.
     /// </summary>
     [HttpPost("{id:guid}/back-to-service")]
-    [Authorize(Policy = AuthPolicies.OperatorOrAdmin)]
+    [Authorize(Policy = AuthPolicies.OperatorOnly)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -434,6 +456,7 @@ public sealed class RobotsController(
         CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actorUserId)) return Unauthorized();
+        if (await CheckRobotFloorAsync(id, cancellationToken) is { } denied) return denied;
         var result = await robotService.BackToServiceAsync(actorUserId, id, cancellationToken);
         if (result.IsSuccess)
             return NoContent();
@@ -451,5 +474,32 @@ public sealed class RobotsController(
             _ => throw new InvalidOperationException("Robot service returned an invalid back-to-service result.")
         };
     }
+    private string? OperatorFloor()
+    {
+        var floor = User.IsInRole("OPERATOR") ? User.FindFirstValue("rmms:floor") : null;
+        return string.IsNullOrWhiteSpace(floor) ? null : floor;
+    }
+
+    private ObjectResult OperatorWithoutFloor() => Problem(
+        type: "OPERATOR_FLOOR_NOT_CONFIGURED",
+        title: "The operator account has no assigned floor.",
+        statusCode: StatusCodes.Status409Conflict);
+
+    private async Task<ActionResult?> CheckRobotFloorAsync(Guid robotId, CancellationToken cancellationToken)
+    {
+        if (!User.IsInRole("OPERATOR")) return null;
+        if (OperatorFloor() is not { } operatorFloor) return OperatorWithoutFloor();
+
+        var robotFloor = await robotService.FindRobotFloorAsync(robotId, cancellationToken);
+        if (robotFloor is null)
+            return Problem(type: "ROBOTS_NOT_FOUND", title: "The requested robot was not found.",
+                statusCode: StatusCodes.Status404NotFound);
+        if (!string.Equals(robotFloor, operatorFloor, StringComparison.Ordinal))
+            return Problem(type: "FLOOR_FORBIDDEN", title: "The robot is outside the operator's assigned floor.",
+                statusCode: StatusCodes.Status403Forbidden);
+
+        return null;
+    }
+
     private bool TryGetActor(out Guid userId) => Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out userId);
 }

@@ -6,12 +6,14 @@ public interface IRobotService
 {
     /// <summary>
     /// Returns robots matching the query filters.
-    /// Floor restriction per Operator is deferred until the User schema
-    /// gains a zone assignment column.
+    /// An assigned operator floor takes precedence over the query filter.
     /// </summary>
     Task<RobotListResult> GetRobotsAsync(
         RobotListQuery    query,
+        string?           operatorFloor,
         CancellationToken cancellationToken = default);
+
+    Task<string?> FindRobotFloorAsync(Guid robotId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns full detail for one robot, or NotFound.

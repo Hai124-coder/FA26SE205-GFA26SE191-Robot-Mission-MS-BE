@@ -268,6 +268,18 @@ Màn SC-05 Robot (Admin), SC-14 Chi tiết robot, SC-13 Bản đồ trực tiế
 
 Các lệnh trên được backend chuyển thành tin MQTT rmms/v1/{robotId}/command gửi xuống robot.
 
+`GET /robots` tự giới hạn Operator theo tầng được gán. Bộ lọc `floor` của
+Operator không thay đổi phạm vi này. Khi đọc chi tiết, đọc lịch sử hoặc gọi thao
+tác vận hành cho robot ngoài tầng, Operator nhận `403 FLOOR_FORBIDDEN`. Operator
+thiếu tầng nhận `409 OPERATOR_FLOOR_NOT_CONFIGURED`.
+
+`GET /robots/{id}/history` nhận `from`, `to` theo ISO 8601 và tính cả hai đầu
+khoảng. `to` mặc định là thời điểm hiện tại và `from` mặc định là 7 ngày trước
+`to`. Khoảng đảo ngược trả `400 ROBOTS_HISTORY_INVALID_DATE_RANGE`. Chuyến và
+sự cố lọc theo `createdAt`. Phiên sạc lọc theo `startedAt` nếu có, nếu chưa có
+thì theo `queuedAt`. Response trả riêng hai mốc này, với `startedAt: null` khi
+robot chưa bắt đầu sạc. `durationMinutes` cần có cả mốc bắt đầu và kết thúc.
+
 
 ## 5. Danh mục hàng, loại nhiệm vụ, cấu hình
 

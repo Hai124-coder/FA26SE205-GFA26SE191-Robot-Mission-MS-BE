@@ -2,7 +2,7 @@ using RobotMissionMS.Business.Features.Robots.DTOs;
 
 namespace RobotMissionMS.Business.Features.Robots.Services;
 
-public enum RobotHistoryError { NotFound }
+public enum RobotHistoryError { NotFound, InvalidDateRange }
 
 public sealed class RobotHistoryResult
 {

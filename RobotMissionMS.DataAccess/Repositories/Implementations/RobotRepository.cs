@@ -195,6 +195,10 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             openAlerts);
     }
 
+    public Task<string?> FindRobotFloorAsync(Guid robotId, CancellationToken cancellationToken = default) =>
+        db.Robots.AsNoTracking().Where(robot => robot.Id == robotId)
+            .Select(robot => (string?)robot.Zone.Code).SingleOrDefaultAsync(cancellationToken);
+
     public async Task<RobotHistoryData?> GetRobotHistoryAsync(
         Guid     robotId,
         DateTime fromUtc,
@@ -205,8 +209,7 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
             .AnyAsync(r => r.Id == robotId, cancellationToken);
         if (!exists) return null;
 
-        // Run 3 queries concurrently — same DbContext, same transaction-less read
-        var tripsTask = db.Trips.AsNoTracking()
+        var trips = await db.Trips.AsNoTracking()
             .Where(t => t.RobotId == robotId
                      && t.CreatedAt >= fromUtc
                      && t.CreatedAt <= toUtc)
@@ -221,7 +224,7 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
                 t.CreatedAt))
             .ToListAsync(cancellationToken);
 
-        var alertsTask = db.Alerts.AsNoTracking()
+        var alerts = await db.Alerts.AsNoTracking()
             .Where(a => a.RobotId == robotId
                      && a.CreatedAt >= fromUtc
                      && a.CreatedAt <= toUtc)
@@ -237,7 +240,7 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
                 a.ResolvedAt))
             .ToListAsync(cancellationToken);
 
-        var chargingTask = db.ChargingSessions.AsNoTracking()
+        var chargingSessions = await db.ChargingSessions.AsNoTracking()
             .Where(cs => cs.RobotId == robotId
                       && (cs.StartedAt ?? cs.QueuedAt) >= fromUtc
                       && (cs.StartedAt ?? cs.QueuedAt) <= toUtc)
@@ -246,16 +249,12 @@ public sealed class RobotRepository(RobotMissionDbContext db) : IRobotRepository
                 cs.Id,
                 cs.ChargingStation.Name,
                 cs.ChargingStation.Location.Code,
-                cs.StartedAt ?? cs.QueuedAt,
+                cs.QueuedAt,
+                cs.StartedAt,
                 cs.EndedAt))
             .ToListAsync(cancellationToken);
 
-        await Task.WhenAll(tripsTask, alertsTask, chargingTask);
-
-        return new RobotHistoryData(
-            await tripsTask,
-            await alertsTask,
-            await chargingTask);
+        return new RobotHistoryData(trips, alerts, chargingSessions);
     }
 
     public Task<Guid?> FindRobotTypeIdByCodeAsync(string typeCode, CancellationToken cancellationToken = default) =>
