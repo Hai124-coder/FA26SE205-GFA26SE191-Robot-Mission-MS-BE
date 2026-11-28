@@ -9,6 +9,8 @@ public sealed class RequestPreviewResponse
     public required int Quantity { get; init; }
     public required string Priority { get; init; }
     public DateTimeOffset? DeadlineAt { get; init; }
+    /// <summary>Echoed back from the request so the caller can confirm what will be stored.</summary>
+    public string? Note { get; init; }
     public required int TaskCount { get; init; }
     public required decimal TotalWeightKg { get; init; }
     public required IReadOnlyList<RequestPreviewSplitResponse> Splits { get; init; }

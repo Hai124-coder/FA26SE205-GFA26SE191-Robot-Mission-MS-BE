@@ -40,6 +40,7 @@ public sealed class RequestPreviewService(RequestValidationService validator) : 
             PickupLocation = new RequestPreviewLocationResponse { Code = pickupCode, Name = pickupName },
             Quantity = request.Quantity, Priority = priority.ToString().ToUpperInvariant(),
             DeadlineAt = validation.DeadlineAt is { } deadlineAt ? new DateTimeOffset(deadlineAt) : null,
+            Note = validation.Note,
             TaskCount = splits.Count, TotalWeightKg = request.Quantity * kgPerUnit,
             Splits = splits
         });
